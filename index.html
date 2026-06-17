@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Casino · Sistema de Gestión</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Exo+2:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div id="bg-layer"></div>
+<div id="bg-over"></div>
+<div id="g-load"><div class="spin"></div></div>
+
+<!-- CONFIG SCREEN -->
+<div id="config-screen" style="display:none">
+  <div class="config-box">
+    <h2>⚙ CONFIGURACIÓN SUPABASE</h2>
+    <p>Para usar este sistema, primero ejecutá el archivo <strong>supabase-schema.sql</strong> en tu proyecto Supabase, luego completá tus credenciales en el código fuente de este archivo.</p>
+    <p style="margin-top:10px;color:var(--muted)">Buscá estas líneas al inicio del JS y reemplazá los valores:</p>
+    <code>const SUPABASE_URL = 'https://xxxxxx.supabase.co';</code>
+    <code>const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIs...';</code>
+    <p style="margin-top:12px;font-size:.8rem;color:var(--muted)">Encontrás estas credenciales en: <strong>Supabase Dashboard → Settings → API</strong></p>
+    <div class="note">Una vez configurado, recargá la página. Las contraseñas iniciales están en el archivo SQL.</div>
+  </div>
+</div>
+
+
+<!-- WELCOME OVERLAY -->
+<div id="welcome-overlay">
+  <div class="welcome-box">
+    <div class="welcome-avatar-big" id="w-avatar">👤</div>
+    <div class="welcome-greeting">BIENVENIDO/A</div>
+    <div class="welcome-name" id="w-name">—</div>
+    <div class="welcome-role" id="w-role">—</div>
+    <div class="welcome-time" id="w-time">—</div>
+    <div class="welcome-suits">♠ ♥ ♦ ♣</div>
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-card-glow"></div>
+    <div class="login-suit-row">
+      <span class="login-suit">♠</span>
+      <span class="login-suit">♥</span>
+      <span class="login-suit">♦</span>
+      <span class="login-suit">♣</span>
+    </div>
+    <div class="login-logo">CASINO</div>
+    <div class="login-sub">SISTEMA DE GESTIÓN</div>
+    <div class="login-divider">
+      <div class="login-divider-line"></div>
+      <div class="login-divider-icon">ACCESO</div>
+      <div class="login-divider-line"></div>
+    </div>
+    <div class="field"><label>USUARIO</label><input type="text" id="lu" placeholder="Ingresá tu usuario" autocomplete="off"></div>
+    <div class="field"><label>CONTRASEÑA</label><input type="password" id="lp" placeholder="••••••••"></div>
+    <button class="btn-login" id="btn-login-main" onclick="doLogin()">INGRESAR</button>
+    <div class="login-err" id="lerr"></div>
+    <div style="margin-top:20px;font-size:.68rem;color:rgba(120,120,140,.4);letter-spacing:1px">♠ Sistema de gestión interno ♠</div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- MODAL -->
+<div id="modal-overlay">
+  <div class="modal-box" id="modal-box">
+    <div class="modal-title" id="modal-title">Confirmar</div>
+    <div id="modal-body"></div>
+    <div class="modal-actions" id="modal-actions"></div>
+  </div>
+</div>
+
+<!-- APP -->
+
+<div id="app" style="display:none">
+  <div class="topbar">
+    <div class="topbar-logo">♠ CASINO</div>
+    <div class="tab-nav" id="tab-nav">
+      <button class="tab-btn active" data-page="inicio">INICIO</button>
+      <button class="tab-btn" data-page="cargas">CARGAS</button>
+      <button class="tab-btn" data-page="historial">HISTORIAL</button>
+      <button class="tab-btn" data-page="retiros">RETIROS</button>
+      <button class="tab-btn" data-page="jugadores">JUGADORES</button>
+      <button class="tab-btn" data-page="bonos">BONOS</button>
+      <button class="tab-btn" data-page="turnos">TURNOS</button>
+      <button class="tab-btn" data-page="metricas">MÉTRICAS</button>
+      <button class="tab-btn" data-page="cuentas" style="display:none">CUENTAS</button>
+      <button class="tab-btn role-admin" data-page="admin" style="display:none">ADMIN</button>
+    </div>
+    <div class="topbar-right">
+      <div class="global-search-wrap" id="gs-wrap">
+        <input class="gs-input" id="gs-inp" placeholder="🔎 Búsqueda global..." autocomplete="off" oninput="globalSearch(this.value)" onfocus="document.getElementById('gs-results').classList.add('show')" onblur="setTimeout(()=>document.getElementById('gs-results').classList.remove('show'),200)">
+        <div class="gs-results" id="gs-results"></div>
+      </div>
+      <div class="theme-switcher role-sa-inline" onclick="toggleThemeDropdown(event)" id="theme-switcher" style="display:none">
+        <div class="theme-switcher-dot" id="theme-dot"></div>
+        <span class="theme-switcher-label" id="theme-label">TEMA</span>
+        <div class="theme-dropdown" id="theme-dropdown">
+          <div class="theme-option active" data-theme="" onclick="applyTheme('','Dorado','#f0c040',event)"><div class="theme-swatch" style="background:#f0c040;box-shadow:0 0 6px #f0c040"></div><span class="theme-name">♠ Dorado</span></div>
+          <div class="theme-option" data-theme="emerald" onclick="applyTheme('emerald','Esmeralda','#30d980',event)"><div class="theme-swatch" style="background:#30d980;box-shadow:0 0 6px #30d980"></div><span class="theme-name">♣ Esmeralda</span></div>
+          <div class="theme-option" data-theme="crimson" onclick="applyTheme('crimson','Carmesí','#e04060',event)"><div class="theme-swatch" style="background:#e04060;box-shadow:0 0 6px #e04060"></div><span class="theme-name">♥ Carmesí</span></div>
+          <div class="theme-option" data-theme="sapphire" onclick="applyTheme('sapphire','Zafiro','#4090ff',event)"><div class="theme-swatch" style="background:#4090ff;box-shadow:0 0 6px #4090ff"></div><span class="theme-name">◆ Zafiro</span></div>
+          <div class="theme-option" data-theme="violet" onclick="applyTheme('violet','Violeta','#a060ff',event)"><div class="theme-swatch" style="background:#a060ff;box-shadow:0 0 6px #a060ff"></div><span class="theme-name">✦ Violeta</span></div>
+          <div class="theme-option" data-theme="rose" onclick="applyTheme('rose','Rosa','#ff70b0',event)"><div class="theme-swatch" style="background:#ff70b0;box-shadow:0 0 6px #ff70b0"></div><span class="theme-name">✿ Rosa</span></div>
+          <div class="theme-option" data-theme="arctic" onclick="applyTheme('arctic','Ártico','#80e0ff',event)"><div class="theme-swatch" style="background:#80e0ff;box-shadow:0 0 6px #80e0ff"></div><span class="theme-name">❄ Ártico</span></div>
+        </div>
+      </div>
+      <label class="btn-tiny role-sa-inline" style="cursor:pointer;display:none">🖼 Fondo<input type="file" accept="image/*" style="display:none" onchange="setBG(this)"></label>
+      <div class="topbar-user" style="display:flex;align-items:center;gap:8px">
+        <div class="topbar-avatar" id="topbar-avatar">👤</div>
+        <span>Cajero: <span id="topbar-name">—</span></span>
+      </div>
+      <div style="position:relative" id="notif-wrap" style="display:none">
+        <button onclick="toggleNotifPanel()" style="background:rgba(255,255,255,.06);border:1px solid var(--glass-b);border-radius:8px;padding:6px 10px;color:var(--text);cursor:pointer;position:relative;font-size:.9rem" title="Notificaciones">
+          🔔<span id="notif-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;font-size:.55rem;font-weight:700;min-width:15px;height:15px;border-radius:8px;line-height:15px;text-align:center;padding:0 2px"></span>
+        </button>
+      </div>
+      <div id="notif-panel" class="notif-panel"></div>
+      <button class="btn-logout" onclick="doLogout()">SALIR</button>
+    </div>
+  </div>
+
+  <!-- SITE BANNER (visible en todas las páginas) -->
+  <div id="site-banner" style="display:none;cursor:pointer;max-height:200px;overflow:hidden;position:relative;border-bottom:1px solid var(--glass-b)" onclick="bannerClick()">
+    <img id="banner-img" src="" alt="" style="display:none;width:100%;max-height:200px;object-fit:cover">
+    <video id="banner-vid" src="" autoplay muted loop playsinline style="display:none;width:100%;max-height:200px;object-fit:cover"></video>
+    <div id="banner-content" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;padding:16px;text-align:center"></div>
+  </div>
+
+  <!-- PAGE: INICIO (Nuevo diseño con tarjetas y filtros) -->
+  <div class="page" id="page-inicio">
+    <!-- Barra de filtros -->
+    <div class="inicio-filter-bar">
+      <div class="filter-group">
+        <label>📅 DESDE</label>
+        <input type="date" id="inicio-fecha-desde">
+      </div>
+      <div class="filter-group">
+        <label>📅 HASTA</label>
+        <input type="date" id="inicio-fecha-hasta">
+      </div>
+      <div class="filter-group">
+        <label>⏱ HORA DESDE</label>
+        <input type="time" id="inicio-hora-desde" value="00:00">
+      </div>
+      <div class="filter-group">
+        <label>⏱ HORA HASTA</label>
+        <input type="time" id="inicio-hora-hasta" value="23:59">
+      </div>
+      <div class="filter-group">
+        <label>👤 TURNO / CAJERO</label>
+        <select id="inicio-turno">
+          <option value="">Todos los turnos</option>
+        </select>
+      </div>
+      <button class="btn-apply-filters" onclick="applyInicioFilters()">🔍 APLICAR</button>
+    </div>
+
+    <!-- Tarjetas de estadísticas -->
+    <div class="dashboard-grid" id="dashboard-cards">
+      <div class="stat-card" style="border-top: 3px solid var(--accent)">
+        <div class="stat-card-icon">💰</div>
+        <div class="stat-card-value" id="st-total-hoy">—</div>
+        <div class="stat-card-label">CARGADO HOY</div>
+      </div>
+      <div class="stat-card" style="border-top: 3px solid var(--accent2)">
+        <div class="stat-card-icon">🎁</div>
+        <div class="stat-card-value" id="st-bonos-hoy">—</div>
+        <div class="stat-card-label">BONOS HOY</div>
+      </div>
+      <div class="stat-card" style="border-top: 3px solid var(--blue)">
+        <div class="stat-card-icon">📤</div>
+        <div class="stat-card-value" id="st-retiros-pend">—</div>
+        <div class="stat-card-label">RETIROS PENDIENTES</div>
+      </div>
+      <div class="stat-card" style="border-top: 3px solid var(--purple)">
+        <div class="stat-card-icon">👥</div>
+        <div class="stat-card-value" id="st-jugadores">—</div>
+        <div class="stat-card-label">JUGADORES</div>
+      </div>
+      <div class="stat-card" style="border-top: 3px solid var(--green)">
+        <div class="stat-card-icon">📋</div>
+        <div class="stat-card-value" id="st-cargas-hoy">—</div>
+        <div class="stat-card-label">CARGAS HOY</div>
+      </div>
+      <div class="stat-card" style="border-top: 3px solid var(--red)">
+        <div class="stat-card-icon">⚡</div>
+        <div class="stat-card-value" id="st-cajero-top" style="font-size:1.5rem">—</div>
+        <div class="stat-card-label">CAJERO TOP</div>
+      </div>
+    </div>
+
+    <!-- Reporte y actividad reciente -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px" id="rep-grid">
+      <div class="card">
+        <div class="card-title-row">
+          <div class="card-title">REPORTE</div>
+          <select class="inp-sel" id="rep-period" onchange="loadReporte()" style="min-width:130px">
+            <option value="hoy">Hoy</option>
+            <option value="semana">Esta semana</option>
+            <option value="mes">Este mes</option>
+          </select>
+        </div>
+        <div id="rep-content"><div style="color:var(--muted);text-align:center;padding:20px">Cargando...</div></div>
+        <button class="btn-primary" style="width:100%;margin-top:14px" onclick="exportReporte()">📥 EXPORTAR TXT</button>
+      </div>
+      <div class="card">
+        <div class="card-title">ACTIVIDAD RECIENTE</div>
+        <div class="activity-feed" id="recent-activity"></div>
+      </div>
+    </div>
+    <style>#rep-grid{display:flex;flex-direction:column}@media(min-width:800px){#rep-grid{display:grid}}</style>
+  </div>
+
+  <!-- PAGE: TURNOS -->
+  <div class="page" id="page-turnos">
+    <div class="card">
+      <div class="card-title-row">
+        <div class="card-title">MI TURNO</div>
+        <div id="turno-status-badge"></div>
+      </div>
+      <div id="turno-info" style="margin-bottom:16px"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-green" id="btn-open-turno" onclick="openTurno()" style="flex:1">▶ INICIAR TURNO</button>
+        <button class="btn-red" id="btn-close-turno" onclick="closeTurno()" style="flex:1;padding:11px;font-size:.9rem" disabled>■ CERRAR TURNO</button>
+      </div>
+      <div style="margin-top:16px">
+        <label style="font-size:.72rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:5px">NOTA DEL TURNO</label>
+        <textarea class="inp" id="turno-nota" rows="3" placeholder="Observaciones, incidentes, notas para el siguiente cajero..." style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title-row">
+        <div class="card-title">HISTORIAL DE TURNOS</div>
+        <select class="inp-sel" id="turno-filter-staff" onchange="loadTurnos()" style="min-width:150px">
+          <option value="">Todos los cajeros</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>CAJERO</th><th>APERTURA</th><th>CIERRE</th><th>DURACIÓN</th><th>CARGAS</th><th>NOTA</th></tr></thead>
+          <tbody id="turnos-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+    <!-- PAGE: MÉTRICAS -->
+  <div class="page" id="page-metricas">
+    <!-- FILTROS -->
+    <div class="card" style="padding:14px 18px;margin-bottom:14px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div>
+          <label style="font-size:.68rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:4px">PERÍODO RÁPIDO</label>
+          <select class="inp-sel" id="met-period" onchange="onMetPeriodChange()" style="min-width:130px">
+            <option value="7">Últimos 7 días</option>
+            <option value="14">Últimos 14 días</option>
+            <option value="30" selected>Últimos 30 días</option>
+            <option value="90">Últimos 90 días</option>
+            <option value="custom">Personalizado...</option>
+          </select>
+        </div>
+        <div id="met-custom-dates" style="display:none;display:flex;gap:8px;flex-wrap:wrap">
+          <div>
+            <label style="font-size:.68rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:4px">DESDE</label>
+            <input type="date" class="inp" id="met-from" style="min-width:140px;padding:7px 10px;font-size:.82rem">
+          </div>
+          <div>
+            <label style="font-size:.68rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:4px">HASTA</label>
+            <input type="date" class="inp" id="met-to" style="min-width:140px;padding:7px 10px;font-size:.82rem">
+          </div>
+        </div>
+        <div>
+          <label style="font-size:.68rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:4px">CAJERO</label>
+          <select class="inp-sel" id="met-cajero" style="min-width:140px">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <button class="btn-primary" onclick="loadMetricas()" style="padding:8px 18px;font-size:.88rem;align-self:flex-end">↻ APLICAR</button>
+        <span id="met-updated" style="font-size:.68rem;color:var(--muted);align-self:flex-end;padding-bottom:4px"></span>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="met-kpi-grid" id="met-kpis"></div>
+
+    <!-- GRÁFICOS GLOBALES -->
+    <div class="metrics-grid">
+      <div class="chart-card wide">
+        <div class="chart-title">CARGAS POR DÍA</div>
+        <canvas id="ch-daily"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">BONOS POR TIPO</div>
+        <canvas id="ch-bonus-type"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">CARGAS POR CAJERO</div>
+        <canvas id="ch-cajero"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">MONTO POR CAJERO</div>
+        <canvas id="ch-cajero-monto"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">RETIROS POR ESTADO</div>
+        <canvas id="ch-retiros"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">CALIFICACIÓN JUGADORES</div>
+        <canvas id="ch-stars"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">OK vs ERROR</div>
+        <canvas id="ch-status"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">ACTIVIDAD POR HORA</div>
+        <canvas id="ch-hora"></canvas>
+      </div>
+    </div>
+
+    <!-- DETALLE POR CAJERO -->
+    <div class="card" style="margin-top:4px">
+      <div class="card-title">DETALLE POR CAJERO</div>
+      <div id="cajero-detail-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px"></div>
+    </div>
+  </div>
+
+  <!-- PAGE: CARGAS -->
+  <div class="page active" id="page-cargas">
+    <!-- BANK ROTATION CARD -->
+    <div class="card" id="bank-card" style="border-color:rgba(64,192,112,.18)">
+      <div class="card-title-row">
+        <div class="card-title" style="color:var(--green)">🏦 CUENTA PARA ENVIAR</div>
+        <div class="bank-rotate-info" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span>Turno: <strong id="bank-shift-label" style="color:var(--accent)">—</strong></span>
+          <select id="cargas-shift-sel" class="inp-sel" style="font-size:.72rem;padding:4px 10px;min-width:150px" onchange="setActiveShift(this.value)">
+            <option value="1">🌙 Turno Noche</option>
+            <option value="2">🌅 Turno Mañana</option>
+            <option value="3">☀️ Turno Tarde</option>
+          </select>
+          <span style="font-size:.68rem;color:var(--muted)">Próx: <span id="bank-next-label">—</span></span>
+        </div>
+      </div>
+      <button class="bank-copy-btn" id="bank-copy-main" onclick="copyBankAccount()">
+        <div class="bank-preview" id="bank-preview">
+          <div class="bank-preview-bank">Cargando cuenta...</div>
+        </div>
+      </button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+        <span class="bank-counter-badge">Turno actual: <strong id="bank-turno-count">0</strong> usos</span>
+        <span class="bank-counter-badge">Esta cuenta: <strong id="bank-account-count">0</strong> usos</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">REGISTRAR CARGA</div>
+      <div class="form-row">
+        <div class="form-col">
+          <label>JUGADOR</label>
+          <div class="ac-wrap">
+            <input class="inp" id="c-player" placeholder="Nombre del jugador" autocomplete="off" oninput="acSearch(this.value)">
+            <div class="ac-list" id="ac-list"></div>
+          </div>
+        </div>
+        <div class="form-col">
+          <label>MONTO DE CARGA ($)</label>
+          <input class="inp" type="number" id="c-amount" placeholder="0" min="0" step="1" oninput="updateTotal(); renderBonusButtons();">
+        </div>
+      </div>
+      <div class="card-title" style="margin-top:4px;margin-bottom:12px">SELECCIONAR BONO</div>
+      <div class="bonus-grid" id="bonus-grid">
+        <button class="b-btn-none sel" id="btn-nobonus" onclick="selBonus(null)">SIN BONO</button>
+      </div>
+      <div class="total-display">
+        <div><div class="total-label">JUGADOR</div><div id="display-player" style="font-size:1rem;font-weight:600;color:var(--text)">—</div></div>
+        <div style="text-align:right"><div class="total-label">MONTO TOTAL (CARGA + BONO)</div><div class="total-val" id="display-total">$0</div></div>
+      </div>
+      <div class="copy-row">
+        <button class="btn-copy-big" onclick="copyUser()">📋 COPIAR USUARIO</button>
+        <button class="btn-copy-reg" onclick="copyTotalAndRegister()">✔ COPIAR TOTAL Y REGISTRAR</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title-row">
+        <div class="card-title">CONTADORES DE BONOS</div>
+        <button class="btn-reset-sm" onclick="resetCounters()" id="btn-reset-counters">↺ REINICIAR CONTADORES</button>
+      </div>
+      <div class="counters-grid" id="counters-grid">
+        <div class="cnt-box neutral"><div class="cnt-label">CARGANDO...</div><div class="cnt-num">—</div></div>
+      </div>
+      <div class="cajero-breakdown">
+        <div class="cajero-breakdown-title">BONOS POR CAJERO</div>
+        <div class="table-wrap"><table class="cajero-table"><thead><tr id="cajero-thead-tr"><th>CAJERO</th><th>TOTAL BONOS</th><th>MONTO TOTAL</th></tr></thead><tbody id="cajero-tbody"></tbody></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: HISTORIAL -->
+  <div class="page" id="page-historial">
+    <div class="card">
+      <div class="card-title">HISTORIAL DE CARGAS</div>
+      <div class="search-bar">
+        <input class="inp" id="h-search" placeholder="🔍 Buscar jugador, cajero..." oninput="loadHistorial()">
+        <input class="inp" type="date" id="h-date-from" onchange="loadHistorial()" style="min-width:130px">
+        <input class="inp" type="date" id="h-date-to" onchange="loadHistorial()" style="min-width:130px">
+        <select class="inp-sel" id="h-status" onchange="loadHistorial()">
+          <option value="">Todos</option><option value="ok">Sin error</option><option value="error">Error</option>
+        </select>
+        <select class="inp-sel" id="h-bonus" onchange="loadHistorial()">
+          <option value="">Todos los bonos</option><option value="0">Sin bono</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>JUGADOR</th><th>CARGA</th><th>BONO</th><th>TOTAL</th><th>CAJERO</th><th>FECHA</th><th>HORA</th><th>ESTADO</th><th>ACCIÓN</th><th class="sa-only-col" id="th-delete" style="display:none;color:#e04040">ELIMINAR</th></tr></thead>
+          <tbody id="h-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <div class="pagination-info" id="pag-info">—</div>
+        <div class="pag-btns" id="pag-btns"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: RETIROS -->
+  <div class="page" id="page-retiros">
+    <div class="card">
+      <div class="card-title">NUEVO RETIRO</div>
+      <div class="form-row">
+        <div class="form-col">
+          <label>JUGADOR</label>
+          <div class="ac-wrap">
+            <input class="inp" id="r-player" placeholder="Nombre del jugador" autocomplete="off" oninput="acSearchR(this.value)">
+            <div class="ac-list" id="ac-list-r"></div>
+          </div>
+        </div>
+        <div class="form-col"><label>MONTO ($)</label><input class="inp" type="number" id="r-amount" placeholder="0" min="0" step="1"></div>
+        <div class="form-col"><label>CBU / ALIAS</label><input class="inp" id="r-cbu" placeholder="CBU o alias bancario" autocomplete="off"></div>
+        <div class="form-col"><label>PRINCIPAL</label><input class="inp" id="r-principal" placeholder="Nombre o número de principal" autocomplete="off"></div>
+      </div>
+      <div id="r-timer-info" style="margin-bottom:12px"></div>
+      <div id="retiro-preview">
+        <div class="preview-card">
+          <div class="preview-card-title">📋 VISTA PREVIA DEL RETIRO</div>
+          <div class="preview-rows">
+            <div class="preview-row"><span class="preview-row-label">USUARIO</span><span class="preview-row-val" id="pv-player">—</span></div>
+            <div class="preview-row"><span class="preview-row-label">MONTO</span><span class="preview-row-val highlight" id="pv-amount">—</span></div>
+            <div class="preview-row"><span class="preview-row-label">CBU/ALIAS</span><span class="preview-row-val" id="pv-cbu">—</span></div>
+            <div class="preview-row"><span class="preview-row-label">PRINCIPAL</span><span class="preview-row-val accent" id="pv-principal">—</span></div>
+          </div>
+          <button class="btn-copy-all" id="btn-copy-all" onclick="copyAllRetiroData()">📋 COPIAR TODOS LOS DATOS</button>
+        </div>
+      </div>
+      <button class="btn-green" onclick="createWithdrawal()">✔ REGISTRAR RETIRO</button>
+    </div>
+    <div class="card">
+      <div class="card-title-row">
+        <div class="card-title">RETIROS</div>
+        <select class="inp-sel" id="r-filter" onchange="loadRetiros()" style="min-width:140px">
+          <option value="">Todos</option><option value="pending">Pendientes</option>
+          <option value="in_progress">En proceso</option><option value="completed">Culminados</option>
+        </select>
+      </div>
+      <div id="retiros-list"></div>
+    </div>
+  </div>
+
+  <!-- PAGE: JUGADORES -->
+  <div class="page" id="page-jugadores">
+
+    <!-- STATS BAR -->
+    <div class="players-stats-bar" style="margin-bottom:16px">
+      <div class="players-stat-pill">
+        <div class="psp-icon">👥</div>
+        <div><div class="psp-val" id="pj-total">—</div><div class="psp-lbl">JUGADORES REGISTRADOS</div></div>
+      </div>
+      <div class="players-stat-pill" style="background:rgba(64,192,112,.06);border-color:rgba(64,192,112,.2)">
+        <div class="psp-icon">📅</div>
+        <div><div class="psp-val" id="pj-mes" style="color:var(--green)">—</div><div class="psp-lbl">NUEVOS ESTE MES</div></div>
+      </div>
+      <div class="players-stat-pill" style="background:rgba(64,144,224,.06);border-color:rgba(64,144,224,.2)">
+        <div class="psp-icon">⭐</div>
+        <div><div class="psp-val" id="pj-excelentes" style="color:var(--blue)">—</div><div class="psp-lbl">CALIFICACIÓN EXCELENTE</div></div>
+      </div>
+      <div class="players-stat-pill" style="background:rgba(224,64,64,.06);border-color:rgba(224,64,64,.2)">
+        <div class="psp-icon">🚫</div>
+        <div><div class="psp-val" id="pj-baneados" style="color:var(--red)">—</div><div class="psp-lbl">BANEADOS</div></div>
+      </div>
+    </div>
+
+    <!-- TOP JUGADORES -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title-row">
+        <div class="card-title">TOP JUGADORES</div>
+        <div class="period-btns">
+          <button class="period-btn active" onclick="setTopPeriod(7,this)">7D</button>
+          <button class="period-btn" onclick="setTopPeriod(30,this)">MES</button>
+          <button class="period-btn" onclick="setTopPeriod(90,this)">3M</button>
+          <button class="period-btn" onclick="setTopPeriod(365,this)">AÑO</button>
+        </div>
+      </div>
+      <div id="top-players-list" style="display:flex;flex-direction:column;gap:8px">
+        <div style="color:var(--muted);text-align:center;padding:20px;font-size:.85rem">Cargando...</div>
+      </div>
+    </div>
+
+    <!-- NUEVO JUGADOR -->
+    <div class="card">
+      <div class="card-title">NUEVO JUGADOR</div>
+      <div class="form-row">
+        <div class="form-col"><label>NOMBRE</label><input class="inp" id="nj-name" placeholder="Nombre del jugador" autocomplete="off"></div>
+        <div class="form-col"><label>TELÉFONO</label><input class="inp" id="nj-phone" placeholder="Número de teléfono" autocomplete="off"></div>
+        <div class="form-col"><label>PRINCIPAL</label><input class="inp" id="nj-principal" placeholder="Nombre o número de principal" autocomplete="off"></div>
+      </div>
+      <button class="btn-primary" onclick="createPlayer()">+ AGREGAR JUGADOR</button>
+    </div>
+
+    <!-- PERFILES -->
+    <div class="card">
+      <div class="card-title">PERFILES DE JUGADORES</div>
+      <div class="search-bar">
+        <input class="inp" id="j-search" placeholder="🔍 Buscar por nombre, teléfono o ID..." oninput="loadJugadores()">
+        <select class="inp-sel" id="j-stars" onchange="loadJugadores()">
+          <option value="">Todas las calificaciones</option>
+          <option value="5">⭐⭐⭐⭐⭐ Excelente</option>
+          <option value="4">⭐⭐⭐⭐ Bueno</option>
+          <option value="3">⭐⭐⭐ Promedio</option>
+          <option value="2">⭐⭐ Precaución</option>
+          <option value="1">⭐ Extrema precaución</option>
+          <option value="0">🚫 Baneado</option>
+        </select>
+      </div>
+      <div class="players-grid" id="players-grid"></div>
+    </div>
+  </div>
+
+  <!-- PAGE: BONOS -->
+  <div class="page" id="page-bonos">
+    <div class="card" id="create-bonus-card" style="display:none">
+      <div class="card-title">CREAR NUEVO BONO</div>
+      <div class="form-row">
+        <div class="form-col"><label>NOMBRE</label><input class="inp" id="bn-name" placeholder="Ej: Bono Bienvenida"></div>
+        <div class="form-col">
+          <label>TIPO DE BONO</label>
+          <select class="inp-sel" id="bn-type" onchange="toggleBonusType()" style="width:100%">
+            <option value="fixed">💰 Monto fijo ($)</option>
+            <option value="percentage">📊 Porcentaje (%)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-col" id="bn-fixed-col">
+          <label>MONTO ($)</label>
+          <input class="inp" type="number" id="bn-amount" placeholder="0" min="0">
+        </div>
+        <div class="form-col" id="bn-pct-col" style="display:none">
+          <label>PORCENTAJE: <span id="bn-pct-label" style="color:var(--accent);font-weight:700">50%</span></label>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+            <input type="range" id="bn-pct" min="0" max="100" value="50" step="1"
+              oninput="document.getElementById('bn-pct-label').textContent=this.value+'%'"
+              style="flex:1;accent-color:var(--accent);height:4px;cursor:pointer">
+            <input class="inp" type="number" id="bn-pct-num" value="50" min="0" max="100" step="1"
+              oninput="document.getElementById('bn-pct').value=this.value;document.getElementById('bn-pct-label').textContent=this.value+'%'"
+              style="width:70px;padding:8px 10px;font-size:.88rem">
+          </div>
+        </div>
+        <div class="form-col" style="flex:2">
+          <label>CONDICIONES / DESCRIPCIÓN</label>
+          <input class="inp" id="bn-cond" placeholder="Condiciones de uso, límites, etc.">
+        </div>
+      </div>
+      <button class="btn-primary" onclick="createBonus()">+ CREAR BONO</button>
+    </div>
+    <div class="card">
+      <div class="card-title">BONOS REGISTRADOS</div>
+      <div class="bonuses-list" id="bonuses-list"></div>
+    </div>
+  </div>
+
+  <!-- PAGE: CUENTAS (supervisor + SA) -->
+  <div class="page" id="page-cuentas">
+    <!-- Shift selector -->
+    <div class="card">
+      <div class="card-title-row">
+        <div class="card-title">🏦 GESTIÓN DE CUENTAS BANCARIAS</div>
+        <select class="inp-sel" id="cuentas-shift" onchange="setActiveShift(this.value)" style="min-width:160px">
+          <option value="1">🌙 Turno Noche</option>
+          <option value="2">🌅 Turno Mañana</option>
+          <option value="3">☀️ Turno Tarde</option>
+        </select>
+      </div>
+      <p style="font-size:.75rem;color:var(--muted);line-height:1.6;margin-bottom:16px">Activá las cuentas que usarán en este turno. El sistema rotará automáticamente entre las cuentas activas de forma equilibrada.</p>
+
+      <!-- Add new account form -->
+      <div class="form-row">
+        <div class="form-col" style="flex:1"><label>PRE-TEXTO <span style="font-size:.65rem;color:var(--muted);font-weight:400">(se muestra antes del titular)</span></label><input class="inp" id="ba-pretexto" placeholder="Ej: Enviar comprobante antes de continuar" autocomplete="off"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-col"><label>TITULAR</label><input class="inp" id="ba-holder" placeholder="Nombre del titular" autocomplete="off"></div>
+        <div class="form-col"><label>CBU</label><input class="inp" id="ba-cbu" placeholder="22 dígitos" autocomplete="off"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-col"><label>BANCO</label><input class="inp" id="ba-bank" placeholder="Ej: Mercado Pago, Uala, BBVA..." autocomplete="off"></div>
+        <div class="form-col"><label>ALIAS (opcional)</label><input class="inp" id="ba-alias" placeholder="alias.del.banco" autocomplete="off"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-col" style="flex:1"><label>MENSAJE FINAL <span style="font-size:.65rem;color:var(--muted);font-weight:400">(se muestra después del alias)</span></label><input class="inp" id="ba-mensaje" placeholder="Ej: Monto máximo $50.000. Enviar voucher al operador." autocomplete="off"></div>
+      </div>
+      <button class="btn-primary" onclick="addBankAccount()">+ AGREGAR CUENTA</button>
+    </div>
+
+    <!-- Accounts list -->
+    <div class="card">
+      <div class="card-title-row">
+        <div class="card-title">CUENTAS DEL TURNO</div>
+        <button class="btn-reset-sm" onclick="resetBankCounters()">↺ Reiniciar contadores</button>
+      </div>
+      <div class="bank-list" id="bank-list"></div>
+    </div>
+  </div>
+
+  <!-- PAGE: ADMIN -->
+  <div class="page" id="page-admin">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;flex-wrap:wrap" id="admin-grid">
+      <!-- Staff management -->
+      <div class="card" style="grid-column:1">
+        <div class="card-title">PERSONAL REGISTRADO</div>
+        <div class="staff-list" id="staff-list"></div>
+        <div class="card-title" style="margin-top:4px">NUEVO USUARIO</div>
+        <div class="form-row">
+          <div class="form-col"><label>NOMBRE</label><input class="inp" id="a-name" placeholder="usuario" autocomplete="off"></div>
+          <div class="form-col"><label>CONTRASEÑA</label><input class="inp" type="password" id="a-pass" placeholder="contraseña"></div>
+          <div class="form-col"><label>ROL</label>
+            <select class="inp-sel" id="a-role">
+              <option value="cajero">Cajero</option>
+              <option value="supervisor">Supervisor</option>
+              <option value="admin">Admin</option>
+              <option value="gerente" id="role-gerente-opt" style="display:none">Gerente</option>
+              <option value="superadmin" id="role-sa-opt" style="display:none">Superadmin</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn-primary" onclick="addStaff()">+ AGREGAR</button>
+      </div>
+
+      <!-- Star images -->
+      <div class="card" style="grid-column:2">
+        <div class="card-title">IMÁGENES POR CALIFICACIÓN</div>
+        <p style="font-size:.75rem;color:var(--muted);margin-bottom:14px;line-height:1.6">Subí una imagen para cada nivel. Reemplaza el ícono de estrella en los perfiles de jugadores.</p>
+        <div class="star-config-grid" id="star-config-grid"></div>
+      </div>
+    </div>
+    <!-- Apariencia -->
+    <div class="card" style="margin-top:0">
+      <div class="card-title">🎨 APARIENCIA GLOBAL</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="appearance-grid">
+        <div>
+          <label class="field" style="display:block;margin-bottom:12px">
+            <span style="font-size:.7rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:5px">TEMA DE COLOR</span>
+            <select class="inp-sel" id="ap-theme" style="width:100%" onchange="(function(t){const themes={'':['Dorado','#f0c040'],emerald:['Esmeralda','#30d980'],crimson:['Carmesí','#e04060'],sapphire:['Zafiro','#4090ff'],violet:['Violeta','#a060ff'],rose:['Rosa','#ff70b0'],arctic:['Ártico','#80e0ff']};const[n,c]=themes[t]||themes[''];applyTheme(t,n,c,null)})(this.value)">
+              <option value="">♠ Dorado (default)</option>
+              <option value="emerald">♣ Esmeralda</option>
+              <option value="crimson">♥ Carmesí</option>
+              <option value="sapphire">◆ Zafiro</option>
+              <option value="violet">✦ Violeta</option>
+              <option value="rose">✿ Rosa</option>
+              <option value="arctic">❄ Ártico</option>
+            </select>
+          </label>
+          <label class="field" style="display:block;margin-bottom:12px">
+            <span style="font-size:.7rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:5px">IMAGEN DE FONDO (URL o subir)</span>
+            <div style="display:flex;gap:6px">
+              <input class="inp" id="ap-bg-url" placeholder="https://... o subí un archivo" style="flex:1">
+              <label class="btn-tiny" style="cursor:pointer;white-space:nowrap">📁 Subir<input type="file" accept="image/*" style="display:none" onchange="apBgUpload(this)"></label>
+            </div>
+          </label>
+          <label class="field" style="display:block;margin-bottom:12px">
+            <span style="font-size:.7rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:5px">OPACIDAD DEL OVERLAY (0-1)</span>
+            <input type="range" id="ap-overlay" min="0" max="1" step="0.05" value="0.78" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('ap-overlay-val').textContent=this.value; document.getElementById('bg-over').style.background='rgba(4,6,12,'+this.value+')'">
+            <span id="ap-overlay-val" style="font-size:.72rem;color:var(--muted)">0.78</span>
+          </label>
+        </div>
+        <div>
+          <div style="font-size:.7rem;color:var(--muted);letter-spacing:1px;margin-bottom:8px">BANNER / AVISO</div>
+          <label class="field" style="display:block;margin-bottom:8px">
+            <span style="font-size:.68rem;color:var(--muted);display:block;margin-bottom:4px">TIPO</span>
+            <select class="inp-sel" id="ap-banner-type" style="width:100%" onchange="toggleBannerFields()">
+              <option value="none">Sin banner</option>
+              <option value="image">🖼 Imagen</option>
+              <option value="video">🎬 Video</option>
+              <option value="message">💬 Solo mensaje</option>
+            </select>
+          </label>
+          <div id="ap-banner-fields" style="display:none">
+            <input class="inp" id="ap-banner-url" placeholder="URL de imagen o video" style="margin-bottom:8px">
+            <input class="inp" id="ap-banner-text" placeholder="Texto sobre el banner (opcional)" style="margin-bottom:8px">
+            <input class="inp" id="ap-banner-link" placeholder="Enlace al hacer clic (opcional)">
+          </div>
+        </div>
+      </div>
+      <button class="perm-save-btn" onclick="saveAppearance()" style="margin-top:14px">💾 GUARDAR APARIENCIA</button>
+    </div>
+
+    <!-- Permissions full width -->
+    <div class="card" style="margin-top:0">
+      <div class="card-title">PERMISOS POR ROL</div>
+      <p style="font-size:.75rem;color:var(--muted);margin-bottom:16px;line-height:1.6">Controlá a qué secciones puede acceder cada rol. El superadmin siempre tiene acceso total y no puede ser modificado.</p>
+      <div class="table-wrap">
+        <table class="perm-table">
+          <thead>
+            <tr>
+              <th>SECCIÓN</th>
+              <th class="perm-role-col">GERENTE</th>
+              <th class="perm-role-col">ADMIN</th>
+              <th class="perm-role-col">SUPERVISOR</th>
+              <th class="perm-role-col">CAJERO</th>
+            </tr>
+          </thead>
+          <tbody id="perm-tbody"></tbody>
+        </table>
+      </div>
+      <button class="perm-save-btn" onclick="savePermissions()">💾 GUARDAR PERMISOS</button>
+    </div>
+    <style>#admin-grid{display:flex;flex-direction:column}@media(min-width:900px){#admin-grid{display:grid;grid-template-columns:1fr 1fr}}</style>
+  </div>
+</div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
