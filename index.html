@@ -11,6 +11,8 @@
 <body>
 
 <div id="bg-layer"></div>
+<video id="bg-video" playsinline muted loop
+  style="display:none;position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2;pointer-events:none"></video>
 <div id="bg-over"></div>
 <div id="g-load"><div class="spin"></div></div>
 
@@ -130,7 +132,7 @@
   <!-- SITE BANNER (visible en todas las páginas) -->
   <div id="site-banner" style="display:none;cursor:pointer;max-height:200px;overflow:hidden;position:relative;border-bottom:1px solid var(--glass-b)" onclick="bannerClick()">
     <img id="banner-img" src="" alt="" style="display:none;width:100%;max-height:200px;object-fit:cover">
-    <video id="banner-vid" src="" autoplay muted loop playsinline style="display:none;width:100%;max-height:200px;object-fit:cover"></video>
+    <video id="banner-vid" src="" autoplay muted loop playsinline preload="auto" style="display:none;width:100%;max-height:200px;object-fit:cover"></video>
     <div id="banner-content" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;padding:16px;text-align:center"></div>
   </div>
 
@@ -326,9 +328,44 @@
       </div>
     </div>
 
+    <!-- NUEVOS GRÁFICOS: TURNOS + TOP JUGADORES + RETIROS -->
+    <div class="metrics-grid" style="margin-top:4px">
+      <div class="chart-card">
+        <div class="chart-title">📊 CARGAS POR TURNO</div>
+        <canvas id="ch-turnos"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">💰 MONTO POR TURNO</div>
+        <canvas id="ch-turnos-monto"></canvas>
+      </div>
+      <div class="chart-card wide">
+        <div class="chart-title">📤 RETIROS — MONTOS POR ESTADO</div>
+        <canvas id="ch-retiros-monto"></canvas>
+      </div>
+    </div>
+
+    <!-- TOP JUGADORES -->
+    <div class="card" style="margin-top:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin:0">🏆 TOP JUGADORES DEL PERÍODO</div>
+        <select class="inp-sel" id="met-top-limit" style="font-size:.72rem;padding:5px 10px" onchange="loadMetricas()">
+          <option value="5">Top 5</option>
+          <option value="10" selected>Top 10</option>
+          <option value="20">Top 20</option>
+        </select>
+      </div>
+      <div id="met-top-players"></div>
+    </div>
+
+    <!-- RETIROS PENDIENTES -->
+    <div class="card" style="margin-top:4px">
+      <div class="card-title">⏳ RETIROS PENDIENTES</div>
+      <div id="met-retiros-pendientes"></div>
+    </div>
+
     <!-- DETALLE POR CAJERO -->
     <div class="card" style="margin-top:4px">
-      <div class="card-title">DETALLE POR CAJERO</div>
+      <div class="card-title">👤 DETALLE POR CAJERO</div>
       <div id="cajero-detail-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px"></div>
     </div>
   </div>
@@ -392,8 +429,18 @@
     <div class="card">
       <div class="card-title-row">
         <div class="card-title">CONTADORES DE BONOS</div>
-        <button class="btn-reset-sm" onclick="resetCounters()" id="btn-reset-counters">↺ REINICIAR CONTADORES</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn-reset-sm" onclick="toggleResetHistory()" id="btn-reset-history" style="background:rgba(64,144,224,.1);border-color:rgba(64,144,224,.3);color:var(--blue)">🕐 HISTORIAL</button>
+          <button class="btn-reset-sm" onclick="resetCounters()" id="btn-reset-counters">↺ REINICIAR CONTADORES</button>
+        </div>
       </div>
+
+      <!-- Historial de reinicios (oculto por defecto) -->
+      <div id="reset-history-panel" style="display:none;margin-bottom:14px;background:rgba(10,12,20,.6);border:1px solid rgba(64,144,224,.2);border-radius:12px;padding:14px">
+        <div style="font-family:'Rajdhani',sans-serif;font-size:.82rem;font-weight:700;letter-spacing:1px;color:var(--blue);margin-bottom:10px">🕐 HISTORIAL DE REINICIOS (últimos 10)</div>
+        <div id="reset-history-list" style="font-size:.8rem">Cargando...</div>
+      </div>
+
       <div class="counters-grid" id="counters-grid">
         <div class="cnt-box neutral"><div class="cnt-label">CARGANDO...</div><div class="cnt-num">—</div></div>
       </div>
@@ -677,11 +724,20 @@
               <option value="arctic">❄ Ártico</option>
             </select>
           </label>
-          <label class="field" style="display:block;margin-bottom:12px">
-            <span style="font-size:.7rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:5px">IMAGEN DE FONDO (URL o subir)</span>
-            <div style="display:flex;gap:6px">
-              <input class="inp" id="ap-bg-url" placeholder="https://... o subí un archivo" style="flex:1">
-              <label class="btn-tiny" style="cursor:pointer;white-space:nowrap">📁 Subir<input type="file" accept="image/*" style="display:none" onchange="apBgUpload(this)"></label>
+          <label class="field" style="display:block;margin-bottom:8px">
+            <span style="font-size:.7rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:5px">TIPO DE FONDO</span>
+            <select class="inp-sel" id="ap-bg-type" style="width:100%;margin-bottom:8px" onchange="toggleBgFields()">
+              <option value="none">Sin fondo</option>
+              <option value="image">🖼 Imagen</option>
+              <option value="video">🎬 Video (Cloudinary)</option>
+            </select>
+            <div id="ap-bg-fields" style="display:none">
+              <input class="inp" id="ap-bg-url" placeholder="URL de Cloudinary (imagen o video)" style="margin-bottom:6px">
+              <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">
+                💡 Para video sin lageo agregá a tu URL de Cloudinary:
+                <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px">/q_auto,f_auto,w_1920,br_2m/</code>
+              </div>
+              <label class="btn-tiny" style="cursor:pointer;white-space:nowrap;display:inline-flex">📁 Subir imagen<input type="file" accept="image/*" style="display:none" onchange="apBgUpload(this)"></label>
             </div>
           </label>
           <label class="field" style="display:block;margin-bottom:12px">

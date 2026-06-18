@@ -70,6 +70,34 @@ function hideWelcome() {
 }
 
 
+function applyAppearance(ap) {
+  if (!ap) return;
+  // Tema
+  if (ap.theme !== undefined) {
+    const themes = { '':['Dorado','#f0c040'], emerald:['Esmeralda','#30d980'], crimson:['Carmesí','#e04060'], sapphire:['Zafiro','#4090ff'], violet:['Violeta','#a060ff'], rose:['Rosa','#ff70b0'], arctic:['Ártico','#80e0ff'] };
+    const [tName, tColor] = themes[ap.theme] || themes[''];
+    applyTheme(ap.theme, tName, tColor, null);
+  }
+  // Fondo
+  const bgLayer = document.getElementById('bg-layer');
+  if (bgLayer) {
+    if (ap.bg) {
+      bgLayer.style.backgroundImage = 'url(' + ap.bg + ')';
+      localStorage.setItem('casino_bg', ap.bg);
+    } else {
+      bgLayer.style.backgroundImage = '';
+      localStorage.removeItem('casino_bg');
+    }
+  }
+  // Overlay
+  if (ap.overlay !== undefined) {
+    const bgOver = document.getElementById('bg-over');
+    if (bgOver) bgOver.style.background = 'rgba(4,6,12,' + ap.overlay + ')';
+  }
+  // Banner
+  if (ap.banner) renderBanner(ap.banner);
+}
+
 async function loadAppearance() {
   try {
     const { data } = await db.from('settings').select('value').eq('key','appearance').single();
@@ -117,9 +145,15 @@ function renderBanner(b) {
   if (vid) { vid.style.display = 'none'; vid.pause && vid.pause(); }
 
   if (b.type === 'video' && b.url) {
-    if (vid) { vid.src = b.url; vid.style.display = 'block'; vid.play && vid.play().catch(()=>{}); }
+    if (vid) {
+      if (vid.getAttribute('src') !== b.url) vid.src = b.url;
+      vid.style.display = 'block'; vid.play && vid.play().catch(()=>{});
+    }
   } else if (b.type === 'image' && b.url) {
-    if (img) { img.src = b.url; img.style.display = 'block'; }
+    if (img) {
+      if (img.getAttribute('src') !== b.url) img.src = b.url; // no recargar si es la misma
+      img.style.display = 'block';
+    }
   } else if (b.type === 'message') {
     // Solo mensaje, sin imagen
     banner.style.background = 'linear-gradient(135deg,rgba(240,192,64,.15),rgba(224,120,32,.1))';
@@ -176,26 +210,10 @@ async function saveAppearance() {
     const { error } = await db.from('settings').upsert({ key:'appearance', value: ap, updated_by: state.currentUser.name, updated_at: new Date().toISOString() });
     if (error) throw error;
 
-    // Aplicar inmediatamente
-    const themes = { '':['Dorado','#f0c040'], emerald:['Esmeralda','#30d980'], crimson:['Carmesí','#e04060'], sapphire:['Zafiro','#4090ff'], violet:['Violeta','#a060ff'], rose:['Rosa','#ff70b0'], arctic:['Ártico','#80e0ff'] };
-    const [tName, tColor] = themes[theme] || themes[''];
-    applyTheme(theme, tName, tColor, null);
-
-    // Fondo
-    const bgLayer = document.getElementById('bg-layer');
-    if (bg) {
-      bgLayer.style.backgroundImage = 'url(' + bg + ')';
-      localStorage.setItem('casino_bg', bg);
-    } else {
-      bgLayer.style.backgroundImage = '';
-      localStorage.removeItem('casino_bg');
-    }
-
-    // Overlay
-    document.getElementById('bg-over').style.background = 'rgba(4,6,12,' + overlay + ')';
-
-    // Banner
-    renderBanner(ap.banner);
+    // Aplicar inmediatamente para el usuario que guardó
+    applyAppearance(ap);
+    // Actualizar hash para que el polling no lo re-aplique innecesariamente
+    lastAppearanceHash_ = new Date().toISOString();
 
     showToast('✔ Apariencia guardada correctamente.', 't-ok');
   } catch(e) {
@@ -403,6 +421,8 @@ async function loadCuentas() {
       showLoad(false); return;
     }
 
+    state.bankAccounts_ = data;
+
     list.innerHTML = data.map(a => {
       const activeStyle = a.active ? 'active-bank' : '';
       return '<div class="bank-row ' + activeStyle + '">' +
@@ -419,6 +439,7 @@ async function loadCuentas() {
           '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.75rem;color:var(--text)">' +
             '<input type="checkbox" ' + (a.active ? 'checked' : '') + ' style="accent-color:var(--green)" onchange="toggleBankActive(&quot;' + a.id + '&quot;,this.checked)"> Activa' +
           '</label>' +
+          '<button class="btn-ghost" style="padding:4px 9px" onclick="showBankEdit(&quot;' + a.id + '&quot;)">✏️</button>' +
           '<button class="btn-red" onclick="deleteBankAccount(&quot;' + a.id + '&quot;)">🗑</button>' +
         '</div>' +
       '</div>';
@@ -468,7 +489,8 @@ async function addBankAccount() {
 }
 
 async function toggleBankActive(id, active) {
-  await db.from('bank_accounts').update({ active }).eq('id', id);
+  const { error } = await db.from('bank_accounts').update({ active }).eq('id', id);
+  if (error) { showToast('No se pudo actualizar la cuenta: ' + (error.message || error), 't-err'); console.error(error); return; }
   await loadCuentas();
   await loadCurrentBankAccount();
 }
@@ -476,22 +498,86 @@ async function toggleBankActive(id, active) {
 async function deleteBankAccount(id) {
   showConfirm('¿Eliminar esta cuenta bancaria?', async () => {
     showLoad(true);
-    await db.from('bank_accounts').delete().eq('id', id);
+    const { error } = await db.from('bank_accounts').delete().eq('id', id);
+    if (error) { showToast('No se pudo eliminar: ' + (error.message || error), 't-err'); console.error(error); showLoad(false); return; }
     await loadCuentas();
     await loadCurrentBankAccount();
     showLoad(false);
   });
 }
 
+function showBankEdit(id) {
+  const a = (state.bankAccounts_ || []).find(x => String(x.id) === String(id));
+  if (!a) { showToast('No se encontró la cuenta.', 't-err'); return; }
+  const v = s => (s == null ? '' : String(s));
+  showModal({
+    title: '✏️ Editar cuenta bancaria',
+    wide: true,
+    body:
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+        '<div class="form-col"><label>TITULAR</label>' +
+          '<input id="be-holder" class="inp" value="' + esc(v(a.holder_name)) + '"></div>' +
+        '<div class="form-col"><label>CBU</label>' +
+          '<input id="be-cbu" class="inp" inputmode="numeric" value="' + esc(v(a.cbu)) + '"></div>' +
+        '<div class="form-col"><label>BANCO</label>' +
+          '<input id="be-bank" class="inp" value="' + esc(v(a.bank_name)) + '"></div>' +
+        '<div class="form-col"><label>ALIAS (opcional)</label>' +
+          '<input id="be-alias" class="inp" value="' + esc(v(a.alias)) + '"></div>' +
+        '<div class="form-col"><label>PRE-TEXTO (opcional)</label>' +
+          '<input id="be-pretexto" class="inp" value="' + esc(v(a.pretexto)) + '"></div>' +
+        '<div class="form-col"><label>MENSAJE FINAL (opcional)</label>' +
+          '<input id="be-mensaje" class="inp" value="' + esc(v(a.mensaje)) + '"></div>' +
+      '</div>',
+    actions:
+      '<button class="btn-modal" data-modal-cancel>Cancelar</button>' +
+      '<button class="btn-primary" onclick="saveBankEdit(&quot;' + a.id + '&quot;)">Guardar cambios</button>',
+  });
+}
+
+async function saveBankEdit(id) {
+  const holder   = document.getElementById('be-holder')?.value.trim();
+  const cbu      = document.getElementById('be-cbu')?.value.trim().replace(/\s/g, '');
+  const bank     = document.getElementById('be-bank')?.value.trim();
+  const alias    = document.getElementById('be-alias')?.value.trim() || '';
+  const pretexto = document.getElementById('be-pretexto')?.value.trim() || '';
+  const mensaje  = document.getElementById('be-mensaje')?.value.trim() || '';
+
+  if (!holder) { showToast('Ingresá el nombre del titular.', 't-err'); return; }
+  if (!cbu)    { showToast('Ingresá el CBU.', 't-err'); return; }
+  if (!bank)   { showToast('Ingresá el nombre del banco.', 't-err'); return; }
+  if (!/^\d+$/.test(cbu)) { showToast('El CBU solo debe contener números.', 't-err'); return; }
+
+  showLoad(true);
+  const { error } = await db.from('bank_accounts').update({
+    holder_name: holder, cbu, bank_name: bank, alias, pretexto, mensaje,
+  }).eq('id', id);
+  if (error) {
+    showToast('No se pudo guardar: ' + (error.message || error), 't-err');
+    console.error(error); showLoad(false); return;
+  }
+  closeModal();
+  await loadCuentas();
+  await loadCurrentBankAccount();
+  showLoad(false);
+  showToast('✔ Cuenta actualizada.', 't-ok');
+}
+
 async function resetBankCounters() {
   const shift = state.activeShift_;
   showConfirm('¿Reiniciar contadores de uso de todas las cuentas del turno ' + shift + '?', async () => {
     showLoad(true);
-    await db.from('bank_accounts').update({ use_count: 0, last_used_at: null }).eq('shift_number', shift);
-    await loadCuentas();
-    await loadCurrentBankAccount();
-    showToast('Contadores de cuentas reiniciados.', 't-ok');
-    showLoad(false);
+    try {
+      const { error } = await db.from('bank_accounts').update({ use_count: 0, last_used_at: null }).eq('shift_number', shift);
+      if (error) throw error;
+      await loadCuentas();
+      await loadCurrentBankAccount();
+      showToast('Contadores de cuentas reiniciados.', 't-ok');
+    } catch (e) {
+      showToast('No se pudo reiniciar: ' + (e?.message || e), 't-err');
+      console.error(e);
+    } finally {
+      showLoad(false);
+    }
   });
 }
 
@@ -514,6 +600,118 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 /* ── AUTH ──────────────────────────────────────────────── */
+
+/* ============================================================
+   AUTO-REFRESH / POLLING
+   Refresca la página activa cada 10 segundos sin real-time.
+   Solo corre cuando la pestaña está visible (evita requests
+   innecesarios cuando el usuario cambió de pestaña).
+   ============================================================ */
+let autoRefreshInterval_ = null;
+let currentActivePage_   = null;
+let isRefreshing_        = false;
+const POLL_INTERVAL      = 10_000; // 10 segundos
+
+// Páginas que NO tienen sentido refrescar automáticamente
+const NO_AUTO_REFRESH = new Set(['admin', 'bonos']);
+
+async function autoRefreshPage() {
+  if (!currentActivePage_) return;
+  if (NO_AUTO_REFRESH.has(currentActivePage_)) return;
+  if (isRefreshing_) return; // evitar solapamiento si la query tarda
+  if (document.hidden) return; // pestaña no visible, no gastar requests
+
+  isRefreshing_ = true;
+  try {
+    await refreshPage(currentActivePage_);
+  } catch (e) {
+    console.warn('autoRefresh error:', e);
+  } finally {
+    isRefreshing_ = false;
+  }
+}
+
+// Refresca sin mostrar el loader (silencioso)
+async function refreshPage(p) {
+  if (p === 'inicio')    { await populateInicioTurnos(); applyInicioFilters(); }
+  if (p === 'cargas')    { await loadCounters(); await loadCurrentBankAccount(); }
+  if (p === 'historial') { await loadHistorial(false); }
+  if (p === 'retiros')   { await loadRetiros(); }
+  if (p === 'jugadores') {
+    await Promise.allSettled([loadJugadorStats(), loadTopPlayers(), loadJugadores()]);
+  }
+  if (p === 'cuentas')   { await loadCuentas(); }
+  if (p === 'metricas')  { await loadMetricas(); }
+  if (p === 'turnos')    { await loadTurnos(); }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  autoRefreshInterval_ = setInterval(autoRefreshPage, POLL_INTERVAL);
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshInterval_) {
+    clearInterval(autoRefreshInterval_);
+    autoRefreshInterval_ = null;
+  }
+}
+
+// Pausa cuando el usuario cambia de pestaña, reanuda cuando vuelve
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopAutoRefresh();
+  } else {
+    // Al volver, refrescar inmediatamente + arrancar polling
+    autoRefreshPage();
+    startAutoRefresh();
+  }
+});
+
+
+/* ============================================================
+   APPEARANCE POLLING
+   Verifica cada 15s si cambió el tema/fondo/banner en Supabase
+   y lo aplica en tiempo real para todos los usuarios conectados.
+   ============================================================ */
+let appearanceInterval_  = null;
+let lastAppearanceHash_  = null;
+
+async function checkAppearanceUpdate() {
+  if (document.hidden) return;
+  try {
+    const { data } = await db.from('settings')
+      .select('value, updated_at')
+      .eq('key', 'appearance')
+      .single();
+
+    if (!data) return;
+
+    // Comparar con el último valor conocido usando updated_at como hash
+    const hash = data.updated_at || JSON.stringify(data.value);
+    if (hash === lastAppearanceHash_) return; // no cambió nada
+    lastAppearanceHash_ = hash;
+
+    // Hay cambios — aplicar apariencia silenciosamente
+    applyAppearance(data.value);
+  } catch (e) {
+    // Silencioso — si falla no interrumpe nada
+  }
+}
+
+function startAppearancePolling() {
+  if (appearanceInterval_) clearInterval(appearanceInterval_);
+  // Chequear cada 15 segundos
+  appearanceInterval_ = setInterval(checkAppearanceUpdate, 15000);
+}
+
+function stopAppearancePolling() {
+  if (appearanceInterval_) {
+    clearInterval(appearanceInterval_);
+    appearanceInterval_ = null;
+  }
+}
+
 async function doLogin() {
   const name = document.getElementById('lu').value.trim().toLowerCase();
   const pass = document.getElementById('lp').value;
@@ -542,7 +740,7 @@ async function doLogin() {
       if (rlEl) rlEl.textContent = ROLE_LABELS[data.role]||data.role;
       const nw = document.getElementById('notif-wrap');
       if (nw) nw.style.display = data.role === 'superadmin' ? '' : 'none';
-      if (data.role === 'superadmin') { loadNotifications(); setInterval(loadNotifications, 60000); }
+      if (data.role === 'superadmin') { loadNotifications(); setInterval(loadNotifications, 5000); }
       updateTopbarAvatar();
       showPage(firstPage);
       hideWelcome();
@@ -587,10 +785,13 @@ function setupTabs() {
 }
 
 function showPage(p) {
+  const pageEl = document.getElementById('page-'+p);
+  if (!pageEl) { console.warn('showPage: página no encontrada:', p); return; }
   document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-'+p).classList.add('active');
-  document.querySelector(`[data-page="${p}"]`)?.classList.add('active');
+  pageEl.classList.add('active');
+  document.querySelector('[data-page="'+p+'"]')?.classList.add('active');
+  currentActivePage_ = p;
   initPage(p);
 }
 
@@ -611,8 +812,6 @@ async function initPage(p) {
   }
   if (p === 'bonos')     await loadBonos();
   if (p === 'cuentas')   await loadCuentas();
-  if (p === 'cuentas')   await loadCuentas();
-  if (p === 'sa-cargas') await initSaCargas();
   if (p === 'metricas')  await loadMetricas();
   if (p === 'turnos')    await loadTurnos();
   if (p === 'admin')     { await loadAdmin(); await populateAppearanceForm(); }
@@ -935,7 +1134,7 @@ async function copyTotalAndRegister() {
   const amount = parseFloat(document.getElementById('c-amount').value);
   if (!player) { showToast('Ingresá el nombre del jugador.', 't-err'); return; }
   if (!amount || amount <= 0) { showToast('Ingresá un monto válido.', 't-err'); return; }
-  const bonus  = state.selBonus_?.amount || 0;
+  const bonus  = calcBonusAmount(state.selBonus_, amount);
   const total  = amount + bonus;
   await copyToClipboard(String(total));
   showToast('✔ Total copiado. Guardando registro...', 't-info');
@@ -954,8 +1153,8 @@ async function saveCharge(playerName, amount) {
       const { data: newP } = await db.from('players').insert({ name: playerName, stars: 5, created_by: state.currentUser.name }).select('id').single();
       pid = newP?.id || null;
     }
-    const bonus = state.selBonus_?.amount || 0;
-    await db.from('charges').insert({
+    const bonus = calcBonusAmount(state.selBonus_, amount);
+    const { error: chErr } = await db.from('charges').insert({
       player_id: pid, player_name: playerName,
       amount, bonus_amount: bonus,
       bonus_type_id: state.selBonus_?.id || null,
@@ -964,18 +1163,19 @@ async function saveCharge(playerName, amount) {
       cajero: state.currentUser.name,
       status: 'ok'
     });
+    if (chErr) throw chErr;
     showToast(`✔ Carga registrada — ${playerName} $${fmtNum(amount+bonus)}`, 't-ok');
     document.getElementById('c-player').value = '';
     document.getElementById('c-amount').value = '';
     selBonus(null);
     await loadCounters();
-  } catch(e) { showToast('Error al guardar.', 't-err'); console.error(e); }
+  } catch(e) { showToast('Error al guardar: ' + (e?.message || e), 't-err'); console.error(e); }
   finally { showLoad(false); }
 }
 
 /* ── COUNTERS ─────────────────────────────────────────── */
 async function loadCounters() {
-  const { data: cr } = await db.from('bonus_counters').select('reset_at').eq('id',1).single();
+  const { data: cr } = await db.from('bonus_counters').select('reset_at').eq('id',1).maybeSingle();
   const resetAt = cr?.reset_at || '1970-01-01';
   const { data: charges } = await db.from('charges').select('bonus_amount,bonus_name,bonus_type_id,cajero').eq('status','ok').gte('created_at', resetAt);
 
@@ -1009,8 +1209,7 @@ async function loadCounters() {
     }
   }
 
-  // ... resto de la función loadCounters, igual que antes ...
-    // ── Render global counters ────────────────────────────
+  // ── Render global counters ────────────────────────────
   const grid = document.getElementById('counters-grid');
   let html = '';
   for (const [, v] of Object.entries(bonusMap)) {
@@ -1070,11 +1269,83 @@ async function resetCounters() {
   if (!canReset) { showToast('Sin permisos para reiniciar contadores.', 't-err'); return; }
   showConfirm('¿Reiniciar todos los contadores de bonos?', async () => {
     showLoad(true);
-    await db.from('bonus_counters').update({ reset_at: new Date().toISOString() }).eq('id',1);
-    await loadCounters();
-    showToast('Contadores reiniciados.', 't-ok');
-    showLoad(false);
+    try {
+      // Leer el reinicio anterior para registrarlo en el historial
+      const { data: prev } = await db.from('bonus_counters')
+        .select('reset_at').eq('id', 1).maybeSingle();
+      const previousResetAt = prev?.reset_at || null;
+      const newResetAt = new Date().toISOString();
+
+      const { error } = await db.from('bonus_counters')
+        .upsert({ id: 1, reset_at: newResetAt }, { onConflict: 'id' });
+      if (error) throw error;
+
+      // Registrar en el historial (no bloquear el reinicio si esto falla)
+      try {
+        await db.from('counter_reset_history').insert({
+          previous_reset_at: previousResetAt,
+          new_reset_at:      newResetAt,
+          reset_by:          state.currentUser?.name || '—',
+        });
+        // Conservar solo los últimos 10
+        const { data: old } = await db.from('counter_reset_history')
+          .select('id').order('created_at', { ascending: false }).range(10, 1000);
+        if (old && old.length) {
+          await db.from('counter_reset_history').delete().in('id', old.map(r => r.id));
+        }
+      } catch (hErr) { console.warn('No se pudo registrar historial de reinicio:', hErr); }
+
+      await loadCounters();
+      if (document.getElementById('reset-history-panel')?.style.display === 'block') {
+        await loadResetHistory();
+      }
+      showToast('Contadores reiniciados.', 't-ok');
+    } catch (e) {
+      showToast('No se pudo reiniciar: ' + (e?.message || e), 't-err');
+      console.error(e);
+    } finally {
+      showLoad(false);
+    }
   });
+}
+
+/* ── HISTORIAL DE REINICIOS ───────────────────────────── */
+async function toggleResetHistory() {
+  const panel = document.getElementById('reset-history-panel');
+  if (!panel) return;
+  const open = panel.style.display === 'block';
+  if (open) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  await loadResetHistory();
+}
+
+async function loadResetHistory() {
+  const list = document.getElementById('reset-history-list');
+  if (!list) return;
+  list.textContent = 'Cargando...';
+  try {
+    const { data, error } = await db.from('counter_reset_history')
+      .select('*').order('created_at', { ascending: false }).limit(10);
+    if (error) throw error;
+    if (!data || !data.length) {
+      list.innerHTML = '<div style="color:var(--muted);padding:6px 0">Sin reinicios registrados todavía.</div>';
+      return;
+    }
+    list.innerHTML = data.map(r => {
+      const when = new Date(r.created_at).toLocaleString('es-PY');
+      const prev = r.previous_reset_at
+        ? new Date(r.previous_reset_at).toLocaleString('es-PY')
+        : 'inicio';
+      return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+        <span>🕐 <strong>${esc(when)}</strong></span>
+        <span style="color:var(--muted)">por ${esc(r.reset_by || '—')}</span>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);padding-bottom:6px">período anterior desde: ${esc(prev)}</div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<div style="color:var(--red,#e05)">No se pudo cargar el historial: ' + esc(e?.message || String(e)) + '</div>';
+    console.error(e);
+  }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1271,10 +1542,14 @@ function showBonusEdit(id, currentBonus) {
   // Bonus buttons from state.activeBonuses
   state.activeBonuses.forEach(function(b) {
     var btn = document.createElement('button');
-    btn.className = 'bonus-sel-btn' + (Math.abs(b.amount - currentBonus) < 0.01 ? ' current' : '');
-    btn.textContent = '$' + fmtNum(b.amount);
+    var isPct  = b.bonus_type === 'percentage';
+    var calcAmt = calcBonusAmount(b, row.amount);
+    btn.className = 'bonus-sel-btn' + (Math.abs(calcAmt - currentBonus) < 0.01 ? ' current' : '');
+    btn.textContent = isPct
+      ? (b.percentage || b.amount) + '% = $' + fmtNum(calcAmt)
+      : '$' + fmtNum(b.amount);
     btn.title = b.name;
-    btn.onclick = function() { saveBonusEdit(id, b.amount, b.name, b.id); };
+    btn.onclick = function() { saveBonusEdit(id, calcAmt, b.name, b.id); };
     grid.appendChild(btn);
   });
   wrap.appendChild(grid);
@@ -1372,7 +1647,13 @@ async function saveBonusEdit(id, newBonus, bonusName, bonusTypeId) {
           updateData.created_at = newDt.toISOString();
         }
       }
-      await db.from('charges').update(updateData).eq('id', id);
+      const { error: upErr } = await db.from('charges').update(updateData).eq('id', id);
+      if (upErr) {
+        showToast('No se pudo guardar: ' + (upErr.message || upErr), 't-err');
+        console.error(upErr);
+        showLoad(false);
+        return;
+      }
       await loadCounters();
       await loadHistorial(false);
       showToast('✔ Bono cambiado: ' + fromLabel + ' → ' + toLabel, 't-ok');
@@ -1384,7 +1665,8 @@ async function saveBonusEdit(id, newBonus, bonusName, bonusTypeId) {
 async function markError(id) {
   showConfirm('¿Marcar esta carga como ERROR? El bono se descontará del contador. El registro permanece en el historial.', async () => {
     showLoad(true);
-    await db.from('charges').update({ status: 'error' }).eq('id', id);
+    const { error } = await db.from('charges').update({ status: 'error' }).eq('id', id);
+    if (error) { showToast('No se pudo actualizar: ' + (error.message || error), 't-err'); console.error(error); showLoad(false); return; }
     await Promise.all([loadHistorial(false), loadCounters()]);
     showToast('Registro marcado como error.', 't-err');
     showLoad(false);
@@ -1395,7 +1677,8 @@ async function deleteCharge(id, btn) {
   if (state.currentUser?.role !== 'superadmin') { showToast('Sin permisos.', 't-err'); return; }
   showConfirm('⚠ ¿ELIMINAR este registro permanentemente? Esta acción no se puede deshacer. Si tenía bono, el contador se ajustará.', async () => {
     showLoad(true);
-    await db.from('charges').delete().eq('id', id);
+    const { error } = await db.from('charges').delete().eq('id', id);
+    if (error) { showToast('No se pudo eliminar: ' + (error.message || error), 't-err'); console.error(error); showLoad(false); return; }
     state.hAllData = state.hAllData.filter(r => r.id !== id);
     renderHistorialPage();
     await loadCounters();
@@ -1588,12 +1871,14 @@ function statusBadgeWD(s) {
 
 async function markPartDone(partId, wdId) {
   showLoad(true);
-  await db.from('withdrawal_parts').update({ status: 'done', completed_at: new Date().toISOString() }).eq('id', partId);
+  const { error: pErr } = await db.from('withdrawal_parts').update({ status: 'done', completed_at: new Date().toISOString() }).eq('id', partId);
+  if (pErr) { showToast('No se pudo actualizar el retiro: ' + (pErr.message || pErr), 't-err'); console.error(pErr); showLoad(false); return; }
   const { data: parts } = await db.from('withdrawal_parts').select('status').eq('withdrawal_id', wdId);
   const allDone = parts?.every(p => p.status === 'done');
   const someD   = parts?.some(p => p.status === 'done');
   const newStatus = allDone ? 'completed' : someD ? 'in_progress' : 'pending';
-  await db.from('withdrawals').update({ status: newStatus }).eq('id', wdId);
+  const { error: wErr } = await db.from('withdrawals').update({ status: newStatus }).eq('id', wdId);
+  if (wErr) { showToast('No se pudo actualizar el estado: ' + (wErr.message || wErr), 't-err'); console.error(wErr); showLoad(false); return; }
   await loadRetiros();
   showLoad(false);
 }
@@ -1601,7 +1886,8 @@ async function markPartDone(partId, wdId) {
 async function deleteWithdrawal(id) {
   showConfirm('¿Eliminar este retiro? El contador de 24hs se recalculará automáticamente.', async () => {
     showLoad(true);
-    await db.from('withdrawals').update({ status: 'deleted' }).eq('id', id);
+    const { error } = await db.from('withdrawals').update({ status: 'deleted' }).eq('id', id);
+    if (error) { showToast('No se pudo eliminar: ' + (error.message || error), 't-err'); console.error(error); showLoad(false); return; }
     await loadRetiros();
     showToast('Retiro eliminado.', 't-ok');
     showLoad(false);
@@ -1836,8 +2122,9 @@ async function savePlayerStars(pid) {
   const upd   = { star_note: note, phone, principal };
   if (stars !== null) upd.stars = stars;
   showLoad(true);
-  await db.from('players').update(upd).eq('id', pid);
+  const { error } = await db.from('players').update(upd).eq('id', pid);
   showLoad(false);
+  if (error) { showToast('No se pudo guardar el perfil: ' + (error.message || error), 't-err'); console.error(error); return; }
   closeModal();
   showToast('Perfil guardado.', 't-ok');
   await loadJugadores();
@@ -1924,7 +2211,8 @@ async function createBonus() {
 
 async function setBonusStatus(id, status) {
   showLoad(true);
-  await db.from('bonus_types').update({ status }).eq('id', id);
+  const { error } = await db.from('bonus_types').update({ status }).eq('id', id);
+  if (error) { showToast('No se pudo cambiar el estado del bono: ' + (error.message || error), 't-err'); console.error(error); showLoad(false); return; }
   await Promise.all([loadBonos(), loadActiveBonuses()]);
   renderBonusButtons();
   showLoad(false);
@@ -1983,7 +2271,8 @@ async function uploadStaffPhoto(staffId, input) {
   const reader = new FileReader();
   reader.onload = async (e) => {
     const dataUrl = e.target.result;
-    await db.from('staff').update({ photo_url: dataUrl }).eq('id', staffId);
+    const { error } = await db.from('staff').update({ photo_url: dataUrl }).eq('id', staffId);
+    if (error) { showToast('No se pudo subir la foto: ' + (error.message || error), 't-err'); console.error(error); showLoad(false); return; }
     if (staffId === state.currentUser.id) {
       state.currentUser.photo_url = dataUrl;
       updateTopbarAvatar();
@@ -2008,7 +2297,8 @@ function updateTopbarAvatar() {
 async function toggleSaAccess(staffId, staffName, enabled) {
   if (state.currentUser.role !== 'superadmin') { showToast('Sin permisos.', 't-err'); return; }
   showLoad(true);
-  await db.from('staff').update({ sa_access: enabled }).eq('id', staffId);
+  const { error } = await db.from('staff').update({ sa_access: enabled }).eq('id', staffId);
+  if (error) { showToast('No se pudo cambiar el acceso SA: ' + (error.message || error), 't-err'); console.error(error); showLoad(false); return; }
   showToast(
     enabled
       ? `★ Acceso SA habilitado para ${cap(staffName)}.`
@@ -2036,9 +2326,11 @@ async function addStaff() {
 }
 
 async function delStaff(id, name) {
+  if (!['superadmin','gerente','admin'].includes(state.currentUser?.role)) { showToast('Sin permisos.', 't-err'); return; }
   showConfirm(`¿Desactivar al usuario "${name}"?`, async () => {
     showLoad(true);
-    await db.from('staff').update({ active: false }).eq('id', id);
+    const { error } = await db.from('staff').update({ active: false }).eq('id', id);
+    if (error) { showToast('No se pudo desactivar: ' + (error.message || error), 't-err'); console.error(error); showLoad(false); return; }
     await loadStaff();
     showToast(`Usuario "${name}" desactivado.`, 't-ok');
     showLoad(false);
@@ -2111,7 +2403,24 @@ async function saveStarImg(n) {
 /* ── MODAL ──────────────────────────────────────────────── */
 
 
-document.getElementById('modal-overlay').addEventListener('click', e => { if (e.target === document.getElementById('modal-overlay')) closeModal(); });
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+
+// Delegación de eventos para botones del modal (showConfirm)
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target.hasAttribute('data-modal-ok')) {
+    closeModal();
+    if (typeof window.__modalOkCallback === 'function') {
+      window.__modalOkCallback();
+      window.__modalOkCallback = null;
+    }
+  }
+  if (e.target.hasAttribute('data-modal-cancel')) {
+    closeModal();
+    window.__modalOkCallback = null;
+  }
+});
 
 /* ══════════════════════════════════════════════════════════
    TURNOS
@@ -2227,7 +2536,8 @@ async function closeTurno() {
   const nota = document.getElementById('turno-nota')?.value?.trim() || '';
   const { data: ch } = await db.from('charges').select('id').eq('cajero', state.currentUser.name).gte('created_at', state.activeTurno_.opened_at);
   showLoad(true);
-  await db.from('turnos').update({ closed_at: new Date().toISOString(), nota, cargas_count: ch?.length||0 }).eq('id', state.activeTurno_.id);
+  const { error } = await db.from('turnos').update({ closed_at: new Date().toISOString(), nota, cargas_count: ch?.length||0 }).eq('id', state.activeTurno_.id);
+  if (error) { showToast('No se pudo cerrar el turno: ' + (error.message || error), 't-err'); console.error(error); showLoad(false); return; }
   state.activeTurno_ = null;
   clearInterval(state.turnoInterval_);
   if (document.getElementById('turno-nota')) document.getElementById('turno-nota').value = '';
@@ -2604,7 +2914,8 @@ function exportReporte() {
 
 
 
-function savePermissions() {
+async function savePermissions() {
+  if (state.currentUser?.role !== 'superadmin') { showToast('Solo el Super Admin puede cambiar permisos.', 't-err'); return; }
   const roles = ['gerente','admin','supervisor','cajero'];
   const newPerms = {};
   roles.forEach(role => {
@@ -2619,11 +2930,26 @@ function savePermissions() {
       }
     });
   });
-  state.permConfig_ = newPerms;
-  localStorage.setItem('casino_perms', JSON.stringify(newPerms));
-  // Refresh tab visibility immediately for current user
-  refreshTabVisibility();
-  showToast('✔ Permisos guardados y aplicados.', 't-ok');
+  showLoad(true);
+  try {
+    // Persistir en la base para que aplique a TODOS los usuarios/dispositivos
+    const { error } = await db.from('settings').upsert({
+      key: 'permissions',
+      value: newPerms,
+      updated_by: state.currentUser.name,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' });
+    if (error) throw error;
+    state.permConfig_ = newPerms;
+    localStorage.setItem('casino_perms', JSON.stringify(newPerms)); // respaldo offline
+    refreshTabVisibility();
+    showToast('✔ Permisos guardados y aplicados para todos.', 't-ok');
+  } catch (e) {
+    showToast('No se pudieron guardar los permisos: ' + (e?.message || e), 't-err');
+    console.error(e);
+  } finally {
+    showLoad(false);
+  }
 }
 
 function refreshTabVisibility() {
@@ -2675,6 +3001,17 @@ function renderPermissions() {
 
 /* == NOTIFICACIONES == */
 
+function notifSeenKey() {
+  return 'casino_notif_seen_' + (state.currentUser?.id || state.currentUser?.name || 'sa');
+}
+function getNotifLastSeen() {
+  try { return localStorage.getItem(notifSeenKey()) || '1970-01-01T00:00:00Z'; }
+  catch (_) { return '1970-01-01T00:00:00Z'; }
+}
+function setNotifLastSeen(ts) {
+  try { localStorage.setItem(notifSeenKey(), ts); } catch (_) {}
+}
+
 
 async function loadNotifications() {
   if (state.currentUser?.role !== 'superadmin') return;
@@ -2691,12 +3028,20 @@ async function loadNotifications() {
     const errors     = errorsRes.status==='fulfilled'   ? errorsRes.value.data||[]   : [];
     const newPlayers = playersRes.status==='fulfilled'  ? playersRes.value.data||[]  : [];
 
-    const alertCount = retiros.length + errors.length;
+    const lastSeenMs = new Date(getNotifLastSeen()).getTime();
+    const isUnseen = r => new Date(r.created_at).getTime() > lastSeenMs;
+    const alertCount = retiros.filter(isUnseen).length
+                     + errors.filter(isUnseen).length
+                     + charges.filter(isUnseen).length
+                     + newPlayers.filter(isUnseen).length;
     const badge = document.getElementById('notif-badge');
     if (badge) { badge.textContent = alertCount||''; badge.style.display = alertCount ? '' : 'none'; }
 
     const panel = document.getElementById('notif-panel');
     if (!panel) return;
+    // Solo reconstruir el panel si está abierto: evita reescribir el DOM cada 5s
+    // (con backdrop-filter activo eso causaba el parpadeo opaco→nítido).
+    if (!panel.classList.contains('show')) return;
     let html = '<div class="notif-header"><span>🔔 NOTIFICACIONES</span><button onclick="toggleNotifPanel()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem">✕</button></div>';
 
     if (retiros.length) {
@@ -2742,7 +3087,10 @@ function toggleNotifPanel() {
   state.notifPanelOpen_ = !state.notifPanelOpen_;
   const panel = document.getElementById('notif-panel');
   if (panel) panel.classList.toggle('show', state.notifPanelOpen_);
-  if (state.notifPanelOpen_) loadNotifications();
+  if (state.notifPanelOpen_) {
+    setNotifLastSeen(new Date().toISOString()); // marcar todo como visto
+    loadNotifications();                          // recalcula el badge → 0
+  }
 }
 
 document.addEventListener('click', e => {
@@ -2762,6 +3110,7 @@ document.addEventListener('click', e => {
    ============================================================ */
 Object.assign(window, {
   acSearch, acSearchR, addBankAccount, addStaff,
+  showBankEdit, saveBankEdit,
   apBgUpload, applyInicioFilters, applyTheme, bannerClick,
   clearStarImg, closeTurno, copyAllRetiroData, copyBankAccount,
   copyTotalAndRegister, copyUser, createBonus, createPlayer,
@@ -2777,5 +3126,6 @@ Object.assign(window, {
   setTopPeriod, showBonusEdit, showPage, toggleBankActive,
   toggleBannerFields, toggleBonusType, toggleNotifPanel, toggleSaAccess,
   toggleThemeDropdown, updateTotal, uploadStaffPhoto, uploadStarImg,
+  toggleResetHistory, loadResetHistory,
   copyText, closeModal,
 });

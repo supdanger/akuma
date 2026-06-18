@@ -5,7 +5,7 @@ import { DEFAULT_PERMS, ROLE_HIERARCHY } from './constants.js';
 export async function loadPermConfig() {
   if (state.permConfig_) return state.permConfig_;
   try {
-    const { data } = await db.from('settings').select('value').eq('key', 'permissions').single();
+    const { data } = await db.from('settings').select('value').eq('key', 'permissions').maybeSingle();
     if (data?.value) {
       const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
       state.permConfig_ = {};
