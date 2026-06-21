@@ -94,8 +94,8 @@ function applyAppearance(ap) {
     const bgOver = document.getElementById('bg-over');
     if (bgOver) bgOver.style.background = 'rgba(4,6,12,' + ap.overlay + ')';
   }
-  // Banner
-  if (ap.banner) renderBanner(ap.banner);
+  // Banner (carrusel)
+  renderBanners(ap);
 }
 
 async function loadAppearance() {
@@ -123,61 +123,295 @@ async function loadAppearance() {
     const ov = ap.overlay !== undefined ? ap.overlay : 0.78;
     document.getElementById('bg-over').style.background = 'rgba(4,6,12,' + ov + ')';
 
-    // Banner
-    if (ap.banner) renderBanner(ap.banner);
+    // Banner (carrusel)
+    renderBanners(ap);
 
   } catch(e) { console.warn('loadAppearance:', e); }
 }
 
-function renderBanner(b) {
+/* ── BANNER (carrusel multi-banner con botones configurables) ── */
+
+// Devuelve la lista de banners a mostrar (soporta el formato viejo de 1 banner)
+function getBannerList(ap) {
+  if (ap && Array.isArray(ap.banners) && ap.banners.length) return ap.banners;
+  if (ap && ap.banner && ap.banner.type && ap.banner.type !== 'none') return [ap.banner];
+  return [];
+}
+
+// Renderiza un banner individual (slide) dentro de un contenedor
+function buildBannerSlide(b) {
+  const slide = document.createElement('div');
+  slide.className = 'bnr-slide';
+  slide.style.cssText = 'position:absolute;inset:0;opacity:0;transition:opacity .6s ease;pointer-events:none';
+
+  // Media de fondo
+  if (b.type === 'video' && b.url) {
+    const v = document.createElement('video');
+    v.src = b.url; v.autoplay = true; v.muted = true; v.loop = true;
+    v.playsInline = true; v.preload = 'auto';
+    v.style.cssText = 'width:100%;height:100%;object-fit:cover';
+    slide.appendChild(v);
+  } else if (b.type === 'image' && b.url) {
+    const im = document.createElement('img');
+    im.src = b.url; im.alt = '';
+    im.style.cssText = 'width:100%;height:100%;object-fit:cover';
+    slide.appendChild(im);
+  } else {
+    // Mensaje / sin media: fondo degradado
+    slide.style.background = 'linear-gradient(135deg,rgba(240,192,64,.18),rgba(224,120,32,.12))';
+  }
+
+  // Capa de contenido (texto + botones)
+  const content = document.createElement('div');
+  content.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#fff;padding:16px;text-align:center';
+
+  if (b.text) {
+    const t = document.createElement('div');
+    t.style.cssText = 'font-family:Rajdhani,sans-serif;font-size:1.5rem;font-weight:700;letter-spacing:1px;text-shadow:0 2px 8px rgba(0,0,0,.7)';
+    t.textContent = b.text;
+    content.appendChild(t);
+  }
+
+  // Botones configurables
+  if (Array.isArray(b.buttons) && b.buttons.length) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;justify-content:center;pointer-events:auto';
+    b.buttons.forEach(btn => {
+      const el = document.createElement('button');
+      el.style.cssText = 'display:inline-flex;align-items:center;gap:8px;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:.95rem;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35);transition:transform .15s ease;'
+        + 'background:' + (btn.bg || '#f0c040') + ';color:' + (btn.color || '#0a0c14') + ';';
+      el.onmouseenter = () => el.style.transform = 'translateY(-2px)';
+      el.onmouseleave = () => el.style.transform = '';
+      if (btn.img) {
+        const bi = document.createElement('img');
+        bi.src = btn.img; bi.alt = '';
+        bi.style.cssText = 'width:22px;height:22px;object-fit:contain;border-radius:4px';
+        el.appendChild(bi);
+      }
+      if (btn.label) {
+        const span = document.createElement('span');
+        span.textContent = btn.label;
+        el.appendChild(span);
+      }
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (btn.action === 'copy') {
+          copyToClipboard(btn.message || '').then(ok =>
+            showToast(ok ? '✔ Mensaje copiado.' : '⚠ No se pudo copiar.', ok ? 't-ok' : 't-err'));
+        } else if (btn.link) {
+          window.open(btn.link, '_blank');
+        }
+      });
+      row.appendChild(el);
+    });
+    content.appendChild(row);
+  }
+
+  // Click en el banner (fuera de botones) → link del slide
+  if (b.link) {
+    slide.style.cursor = 'pointer';
+    slide.style.pointerEvents = 'auto';
+    slide.addEventListener('click', () => window.open(b.link, '_blank'));
+  }
+
+  slide.appendChild(content);
+  return slide;
+}
+
+let _bannerHash = null;
+function renderBanners(ap) {
   const banner = document.getElementById('site-banner');
   if (!banner) return;
-  if (!b || b.type === 'none' || (!b.url && !b.text)) { banner.style.display = 'none'; return; }
+  const list = getBannerList(ap);
+  const rotateMs = Math.max(2000, parseInt(ap?.bannerRotate, 10) || 5000);
+
+  // Evitar reconstruir si no cambió (previene parpadeo)
+  const hash = JSON.stringify({ list, rotateMs });
+  if (hash === _bannerHash) return;
+  _bannerHash = hash;
+
+  // Limpiar rotación previa
+  if (state.bannerTimer_) { clearInterval(state.bannerTimer_); state.bannerTimer_ = null; }
+
+  if (!list.length) { banner.style.display = 'none'; banner.innerHTML = ''; return; }
+
   banner.style.display = '';
-  banner._link = b.link || '';
+  banner.style.cursor = 'default';
+  banner.style.position = 'relative';
+  banner.style.minHeight = '160px';
+  banner.style.maxHeight = '220px';
+  banner.style.overflow = 'hidden';
+  banner.onclick = null;
+  banner.innerHTML = '';
 
-  const img = document.getElementById('banner-img');
-  const vid = document.getElementById('banner-vid');
-  const cnt = document.getElementById('banner-content');
+  const slides = list.map(buildBannerSlide);
+  slides.forEach(s => banner.appendChild(s));
 
-  // Reset ambos
-  if (img) img.style.display = 'none';
-  if (vid) { vid.style.display = 'none'; vid.pause && vid.pause(); }
-
-  if (b.type === 'video' && b.url) {
-    if (vid) {
-      if (vid.getAttribute('src') !== b.url) vid.src = b.url;
-      vid.style.display = 'block'; vid.play && vid.play().catch(()=>{});
-    }
-  } else if (b.type === 'image' && b.url) {
-    if (img) {
-      if (img.getAttribute('src') !== b.url) img.src = b.url; // no recargar si es la misma
-      img.style.display = 'block';
-    }
-  } else if (b.type === 'message') {
-    // Solo mensaje, sin imagen
-    banner.style.background = 'linear-gradient(135deg,rgba(240,192,64,.15),rgba(224,120,32,.1))';
-    banner.style.borderBottom = '1px solid rgba(240,192,64,.25)';
-    banner.style.padding = '18px 24px';
-    banner.style.maxHeight = '';
+  // Indicadores (dots) si hay más de uno
+  let dots = [];
+  if (slides.length > 1) {
+    const dotWrap = document.createElement('div');
+    dotWrap.style.cssText = 'position:absolute;bottom:8px;left:0;right:0;display:flex;gap:6px;justify-content:center;z-index:5;pointer-events:auto';
+    slides.forEach((_, i) => {
+      const d = document.createElement('button');
+      d.style.cssText = 'width:9px;height:9px;border-radius:50%;border:none;cursor:pointer;background:rgba(255,255,255,.45);padding:0';
+      d.addEventListener('click', (ev) => { ev.stopPropagation(); show(i); });
+      dotWrap.appendChild(d); dots.push(d);
+    });
+    banner.appendChild(dotWrap);
   }
 
-  if (cnt) {
-    cnt.innerHTML = b.text
-      ? '<div style="font-family:Rajdhani,sans-serif;font-size:1.5rem;font-weight:700;letter-spacing:1px;text-shadow:0 2px 8px rgba(0,0,0,.7)">' + esc(b.text) + '</div>'
-      : '';
+  let idx = 0, gen = 0;
+  function clearBannerTimer() {
+    if (state.bannerTimer_) { clearTimeout(state.bannerTimer_); state.bannerTimer_ = null; }
   }
+  function show(i) {
+    gen++; const myGen = gen;
+    idx = (i + slides.length) % slides.length;
+    slides.forEach((s, k) => {
+      const active = k === idx;
+      s.style.opacity = active ? '1' : '0';
+      s.style.pointerEvents = active ? 'auto' : 'none';
+      const vv = s.querySelector('video');
+      if (vv && !active) { vv.pause && vv.pause(); }
+    });
+    dots.forEach((d, k) => d.style.background = k === idx ? 'var(--accent,#f0c040)' : 'rgba(255,255,255,.45)');
+
+    clearBannerTimer();
+    const cur = slides[idx];
+    const v = cur.querySelector('video');
+
+    if (slides.length <= 1) {
+      // Un solo banner: el video queda en loop, sin rotación
+      if (v) { v.loop = true; try { v.play && v.play().catch(()=>{}); } catch(_){} }
+      return;
+    }
+
+    if (v) {
+      // Banner de video: avanza cuando el video TERMINA (dura lo que dura el video)
+      v.loop = false;
+      try { v.currentTime = 0; } catch(_) {}
+      v.play && v.play().catch(()=>{});
+      v.onended = () => { if (myGen === gen) show(idx + 1); };
+      // Respaldo por si 'ended' no dispara (video que no carga): usa la duración o un margen amplio
+      const durMs = (v.duration && isFinite(v.duration) && v.duration > 0) ? v.duration * 1000 + 600 : rotateMs * 5;
+      state.bannerTimer_ = setTimeout(() => { if (myGen === gen) show(idx + 1); }, durMs);
+    } else {
+      // Imagen o mensaje: usa el tiempo fijo configurado
+      state.bannerTimer_ = setTimeout(() => { if (myGen === gen) show(idx + 1); }, rotateMs);
+    }
+  }
+  show(0);
 }
 
-function bannerClick() {
-  const banner = document.getElementById('site-banner');
-  if (banner?._link) window.open(banner._link, '_blank');
+// Compatibilidad: renderBanner(b) sigue funcionando para 1 banner
+function renderBanner(b) { _bannerHash = null; renderBanners({ banner: b }); }
+
+function bannerClick() { /* manejado por cada slide ahora */ }
+
+function toggleBannerFields() { /* obsoleto: reemplazado por el constructor de banners */ }
+
+/* ── CONSTRUCTOR DE BANNERS (admin) ───────────────────────── */
+let bannerBuilderState = [];
+
+function blankBannerSlide() {
+  return { type: 'image', url: '', text: '', link: '', buttons: [] };
+}
+function blankBannerButton() {
+  return { label: '', img: '', action: 'link', link: '', message: '', bg: '#f0c040', color: '#0a0c14' };
 }
 
-function toggleBannerFields() {
-  const t = document.getElementById('ap-banner-type')?.value;
-  const f = document.getElementById('ap-banner-fields');
-  if (f) f.style.display = t === 'none' ? 'none' : '';
+function addBannerSlide() {
+  bannerBuilderState.push(blankBannerSlide());
+  renderBannerBuilder();
+}
+function removeBannerSlide(i) {
+  bannerBuilderState.splice(i, 1);
+  renderBannerBuilder();
+}
+function addBannerButton(i) {
+  (bannerBuilderState[i].buttons = bannerBuilderState[i].buttons || []).push(blankBannerButton());
+  renderBannerBuilder();
+}
+function removeBannerButton(i, j) {
+  bannerBuilderState[i].buttons.splice(j, 1);
+  renderBannerBuilder();
+}
+// Actualiza un campo del slide o botón sin re-renderizar (mantiene el foco)
+function setBannerField(i, field, val) { bannerBuilderState[i][field] = val; }
+function setBannerBtnField(i, j, field, val) { bannerBuilderState[i].buttons[j][field] = val; }
+
+// Subida de archivo (imagen/video) → data URL al campo correspondiente
+function bannerFileUpload(input, i, kind, j) {
+  const file = input.files[0]; if (!file) return;
+  const r = new FileReader();
+  r.onload = e => {
+    const url = e.target.result;
+    if (kind === 'slide') {
+      bannerBuilderState[i].url = url;
+      const inp = document.getElementById('bnr-url-' + i); if (inp) inp.value = url;
+    } else {
+      bannerBuilderState[i].buttons[j].img = url;
+      const inp = document.getElementById('bnr-btnimg-' + i + '-' + j); if (inp) inp.value = url;
+    }
+  };
+  r.readAsDataURL(file);
+}
+
+function renderBannerBuilder() {
+  const cont = document.getElementById('ap-banners-list');
+  if (!cont) return;
+  if (!bannerBuilderState.length) {
+    cont.innerHTML = '<div style="color:var(--muted);font-size:.78rem;padding:8px 0">Sin banners. Tocá "Agregar banner" para crear el primero.</div>';
+    return;
+  }
+  cont.innerHTML = bannerBuilderState.map((b, i) => {
+    const buttonsHtml = (b.buttons || []).map((btn, j) => `
+      <div style="border:1px solid var(--glass-b);border-radius:8px;padding:8px;margin-top:6px;background:rgba(255,255,255,.02)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:.66rem;color:var(--muted);letter-spacing:1px">BOTÓN ${j + 1}</span>
+          <button class="btn-tiny" type="button" onclick="removeBannerButton(${i},${j})" style="background:rgba(224,64,96,.15);color:var(--red)">✕</button>
+        </div>
+        <input class="inp" placeholder="Texto del botón" value="${esc(btn.label || '')}" oninput="setBannerBtnField(${i},${j},'label',this.value)" style="margin-bottom:6px">
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <input class="inp" id="bnr-btnimg-${i}-${j}" placeholder="URL imagen del botón (opcional)" value="${esc(btn.img || '')}" oninput="setBannerBtnField(${i},${j},'img',this.value)" style="flex:1">
+          <label class="btn-tiny" style="cursor:pointer;white-space:nowrap">📁<input type="file" accept="image/*" style="display:none" onchange="bannerFileUpload(this,${i},'btn',${j})"></label>
+        </div>
+        <select class="inp-sel" onchange="setBannerBtnField(${i},${j},'action',this.value);renderBannerBuilder()" style="width:100%;margin-bottom:6px">
+          <option value="link" ${btn.action === 'link' ? 'selected' : ''}>🔗 Ir a otra página</option>
+          <option value="copy" ${btn.action === 'copy' ? 'selected' : ''}>📋 Copiar un mensaje</option>
+        </select>
+        ${btn.action === 'copy'
+          ? `<input class="inp" placeholder="Mensaje a copiar" value="${esc(btn.message || '')}" oninput="setBannerBtnField(${i},${j},'message',this.value)" style="margin-bottom:6px">`
+          : `<input class="inp" placeholder="Link de destino (https://...)" value="${esc(btn.link || '')}" oninput="setBannerBtnField(${i},${j},'link',this.value)" style="margin-bottom:6px">`}
+        <div style="display:flex;gap:8px;align-items:center">
+          <label style="font-size:.66rem;color:var(--muted)">Color: <input type="color" value="${esc(btn.bg || '#f0c040')}" oninput="setBannerBtnField(${i},${j},'bg',this.value)"></label>
+          <label style="font-size:.66rem;color:var(--muted)">Texto: <input type="color" value="${esc(btn.color || '#0a0c14')}" oninput="setBannerBtnField(${i},${j},'color',this.value)"></label>
+        </div>
+      </div>`).join('');
+
+    return `
+    <div style="border:1px solid var(--glass-b);border-radius:10px;padding:10px;margin-bottom:10px;background:rgba(0,0,0,.25)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:.72rem;font-weight:700;color:var(--accent)">BANNER ${i + 1}</span>
+        <button class="btn-tiny" type="button" onclick="removeBannerSlide(${i})" style="background:rgba(224,64,96,.15);color:var(--red)">🗑 Quitar</button>
+      </div>
+      <select class="inp-sel" onchange="setBannerField(${i},'type',this.value)" style="width:100%;margin-bottom:6px">
+        <option value="image" ${b.type === 'image' ? 'selected' : ''}>🖼 Imagen</option>
+        <option value="video" ${b.type === 'video' ? 'selected' : ''}>🎬 Video</option>
+        <option value="message" ${b.type === 'message' ? 'selected' : ''}>💬 Solo mensaje</option>
+      </select>
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <input class="inp" id="bnr-url-${i}" placeholder="URL de imagen o video" value="${esc(b.url || '')}" oninput="setBannerField(${i},'url',this.value)" style="flex:1">
+        <label class="btn-tiny" style="cursor:pointer;white-space:nowrap">📁<input type="file" accept="image/*,video/*" style="display:none" onchange="bannerFileUpload(this,${i},'slide')"></label>
+      </div>
+      <input class="inp" placeholder="Texto sobre el banner (opcional)" value="${esc(b.text || '')}" oninput="setBannerField(${i},'text',this.value)" style="margin-bottom:6px">
+      <input class="inp" placeholder="Link al tocar el banner (opcional)" value="${esc(b.link || '')}" oninput="setBannerField(${i},'link',this.value)" style="margin-bottom:6px">
+      <div style="font-size:.66rem;color:var(--muted);letter-spacing:1px;margin:4px 0">BOTONES</div>
+      ${buttonsHtml}
+      <button class="btn-tiny" type="button" onclick="addBannerButton(${i})" style="margin-top:6px">➕ Agregar botón</button>
+    </div>`;
+  }).join('');
 }
 
 function apBgUpload(input) {
@@ -198,12 +432,30 @@ async function saveAppearance() {
   const bg      = document.getElementById('ap-bg-url')?.value.trim() ?? '';
   const overlayEl = document.getElementById('ap-overlay');
   const overlay = overlayEl ? parseFloat(overlayEl.value) : 0.78;
-  const bType   = document.getElementById('ap-banner-type')?.value || 'none';
-  const bUrl    = document.getElementById('ap-banner-url')?.value.trim() || '';
-  const bText   = document.getElementById('ap-banner-text')?.value.trim() || '';
-  const bLink   = document.getElementById('ap-banner-link')?.value.trim() || '';
+  const rotateSec = parseInt(document.getElementById('ap-banner-rotate')?.value, 10) || 5;
 
-  const ap = { theme, bg, overlay, banner: { type: bType, url: bUrl, text: bText, link: bLink } };
+  // Banners: limpiar slides vacíos y botones vacíos
+  const banners = (bannerBuilderState || [])
+    .map(b => ({
+      type: b.type || 'image',
+      url: (b.url || '').trim(),
+      text: (b.text || '').trim(),
+      link: (b.link || '').trim(),
+      buttons: (b.buttons || [])
+        .filter(btn => (btn.label || '').trim() || (btn.img || '').trim())
+        .map(btn => ({
+          label: (btn.label || '').trim(),
+          img: (btn.img || '').trim(),
+          action: btn.action === 'copy' ? 'copy' : 'link',
+          link: (btn.link || '').trim(),
+          message: (btn.message || '').trim(),
+          bg: btn.bg || '#f0c040',
+          color: btn.color || '#0a0c14',
+        })),
+    }))
+    .filter(b => b.url || b.text || (b.buttons && b.buttons.length));
+
+  const ap = { theme, bg, overlay, banners, bannerRotate: rotateSec * 1000 };
 
   showLoad(true);
   try {
@@ -211,8 +463,8 @@ async function saveAppearance() {
     if (error) throw error;
 
     // Aplicar inmediatamente para el usuario que guardó
+    _bannerHash = null; // forzar re-render del banner
     applyAppearance(ap);
-    // Actualizar hash para que el polling no lo re-aplique innecesariamente
     lastAppearanceHash_ = new Date().toISOString();
 
     showToast('✔ Apariencia guardada correctamente.', 't-ok');
@@ -242,17 +494,23 @@ async function populateAppearanceForm() {
       if (ovVal) ovVal.textContent = ov.value;
     }
 
-    const bt = document.getElementById('ap-banner-type');
-    if (bt) {
-      bt.value = ap.banner?.type || 'none';
-      toggleBannerFields();
-      const bu = document.getElementById('ap-banner-url');
-      const bx = document.getElementById('ap-banner-text');
-      const bl = document.getElementById('ap-banner-link');
-      if (bu) bu.value = ap.banner?.url || '';
-      if (bx) bx.value = ap.banner?.text || '';
-      if (bl) bl.value = ap.banner?.link || '';
+    // Banners (constructor)
+    const rotEl = document.getElementById('ap-banner-rotate');
+    if (rotEl) rotEl.value = Math.round((ap.bannerRotate || 5000) / 1000);
+
+    // Migrar formato viejo (1 banner) si hace falta
+    if (Array.isArray(ap.banners) && ap.banners.length) {
+      bannerBuilderState = JSON.parse(JSON.stringify(ap.banners));
+    } else if (ap.banner && ap.banner.type && ap.banner.type !== 'none') {
+      bannerBuilderState = [{
+        type: ap.banner.type, url: ap.banner.url || '', text: ap.banner.text || '',
+        link: ap.banner.link || '', buttons: [],
+      }];
+    } else {
+      bannerBuilderState = [];
     }
+    bannerBuilderState.forEach(b => { if (!Array.isArray(b.buttons)) b.buttons = []; });
+    renderBannerBuilder();
   } catch(e) { console.warn('populateAppearanceForm:', e); }
 }
 
@@ -3112,6 +3370,8 @@ Object.assign(window, {
   acSearch, acSearchR, addBankAccount, addStaff,
   showBankEdit, saveBankEdit,
   apBgUpload, applyInicioFilters, applyTheme, bannerClick,
+  addBannerSlide, removeBannerSlide, addBannerButton, removeBannerButton,
+  setBannerField, setBannerBtnField, bannerFileUpload, renderBannerBuilder,
   clearStarImg, closeTurno, copyAllRetiroData, copyBankAccount,
   copyTotalAndRegister, copyUser, createBonus, createPlayer,
   createWithdrawal, delStaff, deleteBankAccount, deleteCharge,
