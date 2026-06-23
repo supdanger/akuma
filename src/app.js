@@ -70,6 +70,56 @@ function hideWelcome() {
 }
 
 
+/* Aplica el fondo: imagen (en #bg-layer) o video (en #bg-video) */
+function applyBg(ap) {
+  const bgLayer = document.getElementById('bg-layer');
+  const bgVideo = document.getElementById('bg-video');
+  const url = (ap && ap.bg) || '';
+
+  // Determinar el tipo: explícito, o inferido por la URL
+  let type = ap && ap.bgType;
+  if (!type) {
+    if (!url) type = 'none';
+    else if (/\.(mp4|webm|ogg|mov)(\?|$)/i.test(url) || url.startsWith('data:video')) type = 'video';
+    else type = 'image';
+  }
+
+  if (type === 'video' && url) {
+    if (bgLayer) bgLayer.style.backgroundImage = '';
+    if (bgVideo) {
+      if (bgVideo.getAttribute('src') !== url) bgVideo.src = url;
+      bgVideo.style.display = '';
+      try { bgVideo.play && bgVideo.play().catch(() => {}); } catch (_) {}
+    }
+    localStorage.setItem('casino_bg', url);
+    localStorage.setItem('casino_bg_type', 'video');
+  } else if (type === 'image' && url) {
+    if (bgVideo) { try { bgVideo.pause && bgVideo.pause(); } catch (_) {} bgVideo.style.display = 'none'; bgVideo.removeAttribute('src'); }
+    if (bgLayer) bgLayer.style.backgroundImage = 'url(' + url + ')';
+    localStorage.setItem('casino_bg', url);
+    localStorage.setItem('casino_bg_type', 'image');
+  } else {
+    if (bgVideo) { try { bgVideo.pause && bgVideo.pause(); } catch (_) {} bgVideo.style.display = 'none'; bgVideo.removeAttribute('src'); }
+    if (bgLayer) bgLayer.style.backgroundImage = '';
+    localStorage.removeItem('casino_bg');
+    localStorage.removeItem('casino_bg_type');
+  }
+}
+
+/* Muestra/oculta los campos de fondo según el tipo elegido */
+function toggleBgFields() {
+  const type = document.getElementById('ap-bg-type')?.value || 'none';
+  const fields = document.getElementById('ap-bg-fields');
+  const urlInp = document.getElementById('ap-bg-url');
+  const uploadLabel = document.getElementById('ap-bg-upload');
+  if (fields) fields.style.display = type === 'none' ? 'none' : 'block';
+  if (urlInp) urlInp.placeholder = type === 'video'
+    ? 'URL de video de Cloudinary (.mp4 / .webm)'
+    : 'URL de imagen (Cloudinary, etc.)';
+  // El botón de subir archivo solo aplica a imagen; el video va por URL
+  if (uploadLabel) uploadLabel.style.display = type === 'image' ? 'inline-flex' : 'none';
+}
+
 function applyAppearance(ap) {
   if (!ap) return;
   // Tema
@@ -78,17 +128,8 @@ function applyAppearance(ap) {
     const [tName, tColor] = themes[ap.theme] || themes[''];
     applyTheme(ap.theme, tName, tColor, null);
   }
-  // Fondo
-  const bgLayer = document.getElementById('bg-layer');
-  if (bgLayer) {
-    if (ap.bg) {
-      bgLayer.style.backgroundImage = 'url(' + ap.bg + ')';
-      localStorage.setItem('casino_bg', ap.bg);
-    } else {
-      bgLayer.style.backgroundImage = '';
-      localStorage.removeItem('casino_bg');
-    }
-  }
+  // Fondo (imagen o video)
+  applyBg(ap);
   // Overlay
   if (ap.overlay !== undefined) {
     const bgOver = document.getElementById('bg-over');
@@ -111,13 +152,8 @@ async function loadAppearance() {
       applyTheme(ap.theme, name, color, null);
     }
 
-    // Imagen de fondo
-    if (ap.bg) {
-      document.getElementById('bg-layer').style.backgroundImage = 'url(' + ap.bg + ')';
-      localStorage.setItem('casino_bg', ap.bg);
-    } else {
-      document.getElementById('bg-layer').style.backgroundImage = '';
-    }
+    // Imagen o video de fondo
+    applyBg(ap);
 
     // Opacidad del overlay
     const ov = ap.overlay !== undefined ? ap.overlay : 0.78;
@@ -430,6 +466,7 @@ function apBgUpload(input) {
 async function saveAppearance() {
   const theme   = document.getElementById('ap-theme')?.value ?? '';
   const bg      = document.getElementById('ap-bg-url')?.value.trim() ?? '';
+  const bgType  = document.getElementById('ap-bg-type')?.value || (bg ? 'image' : 'none');
   const overlayEl = document.getElementById('ap-overlay');
   const overlay = overlayEl ? parseFloat(overlayEl.value) : 0.78;
   const rotateSec = parseInt(document.getElementById('ap-banner-rotate')?.value, 10) || 5;
@@ -455,7 +492,7 @@ async function saveAppearance() {
     }))
     .filter(b => b.url || b.text || (b.buttons && b.buttons.length));
 
-  const ap = { theme, bg, overlay, banners, bannerRotate: rotateSec * 1000 };
+  const ap = { theme, bg, bgType, overlay, banners, bannerRotate: rotateSec * 1000 };
 
   showLoad(true);
   try {
@@ -486,6 +523,19 @@ async function populateAppearanceForm() {
 
     const bg = document.getElementById('ap-bg-url');
     if (bg) bg.value = ap.bg || '';
+
+    // Tipo de fondo (imagen / video / ninguno) + mostrar campos
+    const bgTypeEl = document.getElementById('ap-bg-type');
+    if (bgTypeEl) {
+      let type = ap.bgType;
+      if (!type) {
+        if (!ap.bg) type = 'none';
+        else if (/\.(mp4|webm|ogg|mov)(\?|$)/i.test(ap.bg) || String(ap.bg).startsWith('data:video')) type = 'video';
+        else type = 'image';
+      }
+      bgTypeEl.value = type;
+    }
+    toggleBgFields();
 
     const ov = document.getElementById('ap-overlay');
     const ovVal = document.getElementById('ap-overlay-val');
@@ -675,7 +725,7 @@ async function loadCuentas() {
     }
 
     if (!data?.length) {
-      list.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Sin cuentas para este turno. Agregá la primera.</div>';
+      list.innerHTML = '<div class="empty-state"><div class="es-icon">🏦</div><div class="es-title">Sin cuentas en este turno</div><div class="es-sub">Agregá la primera cuenta bancaria para empezar.</div></div>';
       showLoad(false); return;
     }
 
@@ -846,7 +896,8 @@ async function resetBankCounters() {
 window.addEventListener('DOMContentLoaded', async () => {
   // El cliente Supabase ya viene inicializado desde services/supabase.js
   const savedBG = localStorage.getItem('casino_bg');
-  if (savedBG) document.getElementById('bg-layer').style.backgroundImage = `url(${savedBG})`;
+  const savedType = localStorage.getItem('casino_bg_type');
+  if (savedBG) applyBg({ bg: savedBG, bgType: savedType });
   // Tema guardado
   const savedTheme = localStorage.getItem('casino_theme') || '';
   const t = THEMES[savedTheme] || THEMES[''];
@@ -891,7 +942,7 @@ async function autoRefreshPage() {
 
 // Refresca sin mostrar el loader (silencioso)
 async function refreshPage(p) {
-  if (p === 'inicio')    { await populateInicioTurnos(); applyInicioFilters(); }
+  if (p === 'inicio')    { await populateInicioTurnos(); applyInicioFilters(); loadReporte(); }
   if (p === 'cargas')    { await loadCounters(); await loadCurrentBankAccount(); }
   if (p === 'historial') { await loadHistorial(false); }
   if (p === 'retiros')   { await loadRetiros(); }
@@ -970,6 +1021,220 @@ function stopAppearancePolling() {
   }
 }
 
+/* ============================================================
+   PRESENCIA / SESIÓN (heartbeat)
+   Cada usuario marca presencia cada 20s, revisa si fue
+   expulsado y aplica cambios de permisos en vivo.
+   ============================================================ */
+let heartbeatTimer_ = null;
+let sessionStartAt_ = null;
+
+function startHeartbeat() {
+  sessionStartAt_ = Date.now();
+  sendHeartbeat();
+  if (heartbeatTimer_) clearInterval(heartbeatTimer_);
+  heartbeatTimer_ = setInterval(sendHeartbeat, 20000);
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer_) { clearInterval(heartbeatTimer_); heartbeatTimer_ = null; }
+}
+
+async function sendHeartbeat() {
+  const u = state.currentUser;
+  if (!u) return;
+  try {
+    // 1) Marcar presencia
+    await db.from('staff').update({ last_seen: new Date().toISOString() }).eq('id', u.id);
+
+    // 2) Revisar expulsión / desactivación / cambios de permisos
+    const { data } = await db.from('staff')
+      .select('force_logout_at, perm_overrides, active, role')
+      .eq('id', u.id).maybeSingle();
+    if (!data) return;
+
+    // ¿Desactivado?
+    if (data.active === false) { forcedLogout('Tu usuario fue desactivado.'); return; }
+
+    // ¿Expulsado? (marca más nueva que el inicio de esta sesión)
+    if (data.force_logout_at && new Date(data.force_logout_at).getTime() > sessionStartAt_) {
+      forcedLogout('Tu sesión fue cerrada por el administrador.');
+      return;
+    }
+
+    // ¿Cambiaron permisos/override en vivo?
+    const ovChanged = JSON.stringify(u.perm_overrides || {}) !== JSON.stringify(data.perm_overrides || {});
+    const roleChanged = u.role !== data.role;
+    if (ovChanged || roleChanged) {
+      u.perm_overrides = data.perm_overrides || {};
+      u.role = data.role;
+      state.permConfig_ = null;
+      await loadPermConfig();
+      refreshTabVisibility();
+      ensureCurrentPageAllowed();
+    }
+  } catch (_) { /* silencioso */ }
+}
+
+function forcedLogout(msg) {
+  stopHeartbeat();
+  stopOnlinePolling();
+  showToast(msg || 'Tu sesión fue cerrada.', 't-err');
+  setTimeout(() => doLogout(), 1300);
+}
+
+// Si la página actual quedó bloqueada, mandar a una permitida
+function ensureCurrentPageAllowed() {
+  const p = currentActivePage_;
+  if (!p || p === 'admin') return;
+  if (!canAccess(p)) {
+    const first = ['inicio','cargas','historial','retiros','jugadores','bonos','turnos','metricas','cuentas']
+      .find(x => canAccess(x)) || 'cargas';
+    showPage(first);
+    showToast('El administrador actualizó tus permisos.', 't-info');
+  }
+}
+
+/* ============================================================
+   USUARIOS EN LÍNEA (solo Super Admin, en Admin)
+   ============================================================ */
+let onlineTimer_ = null;
+const ONLINE_WINDOW_MS = 60000; // activo en el último minuto
+
+function startOnlinePolling() {
+  if (state.currentUser?.role !== 'superadmin') return;
+  loadOnlineUsers();
+  if (onlineTimer_) clearInterval(onlineTimer_);
+  onlineTimer_ = setInterval(loadOnlineUsers, 15000);
+}
+
+function stopOnlinePolling() {
+  if (onlineTimer_) { clearInterval(onlineTimer_); onlineTimer_ = null; }
+}
+
+async function loadOnlineUsers() {
+  const box = document.getElementById('online-users');
+  if (!box) return;
+  if (state.currentUser?.role !== 'superadmin') return;
+  try {
+    const since = new Date(Date.now() - ONLINE_WINDOW_MS).toISOString();
+    const { data } = await db.from('staff')
+      .select('id,name,role,last_seen,photo_url')
+      .gte('last_seen', since)
+      .order('last_seen', { ascending: false });
+
+    const list = data || [];
+    const countEl = document.getElementById('online-count');
+    if (countEl) countEl.textContent = list.length;
+
+    if (!list.length) {
+      box.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:8px 0">Nadie conectado en este momento.</div>';
+      return;
+    }
+
+    box.innerHTML = list.map(s => {
+      const secs = Math.max(0, Math.floor((Date.now() - new Date(s.last_seen).getTime()) / 1000));
+      const ago = secs < 30 ? 'ahora' : secs < 60 ? 'hace ' + secs + 's' : 'hace ' + Math.floor(secs / 60) + 'm';
+      const isSelf = s.id === state.currentUser.id;
+      const isSuper = s.role === 'superadmin';
+      const avatar = s.photo_url
+        ? '<img src="' + esc(s.photo_url) + '" style="width:30px;height:30px;border-radius:50%;object-fit:cover">'
+        : '<span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.08);font-weight:700;font-size:.8rem">' + cap(s.name).charAt(0) + '</span>';
+      const kickBtn = (!isSelf && !isSuper)
+        ? '<button class="btn-red" style="padding:5px 10px;font-size:.72rem" onclick="kickUser(&quot;' + s.id + '&quot;,&quot;' + esc(s.name) + '&quot;)">Desconectar</button>'
+        : (isSelf ? '<span style="font-size:.66rem;color:var(--muted)">vos</span>' : '');
+      return '<div class="online-row">' +
+          '<span class="online-pulse"></span>' +
+          avatar +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-weight:600;font-size:.85rem">' + esc(cap(s.name)) + ' <span class="staff-role-badge ' + roleCls(s.role) + '" style="font-size:.55rem;padding:1px 6px">' + s.role.toUpperCase() + '</span></div>' +
+            '<div style="font-size:.68rem;color:var(--muted)">' + ago + '</div>' +
+          '</div>' +
+          kickBtn +
+        '</div>';
+    }).join('');
+  } catch (e) { console.warn('loadOnlineUsers:', e); }
+}
+
+async function kickUser(staffId, name) {
+  if (state.currentUser?.role !== 'superadmin') { showToast('Sin permisos.', 't-err'); return; }
+  if (staffId === state.currentUser.id) { showToast('No podés desconectarte a vos mismo.', 't-err'); return; }
+  showConfirm('¿Cerrar la sesión de "' + name + '"? Se va a desconectar en los próximos segundos.', async () => {
+    const { error } = await db.from('staff').update({ force_logout_at: new Date().toISOString() }).eq('id', staffId);
+    if (error) { showToast('No se pudo desconectar: ' + (error.message || error), 't-err'); return; }
+    showToast('Se cerró la sesión de ' + cap(name) + '.', 't-ok');
+    loadOnlineUsers();
+  });
+}
+
+/* ── Override de secciones por usuario (Super Admin) ──────── */
+function showUserPerms(staffId) {
+  if (state.currentUser?.role !== 'superadmin') { showToast('Sin permisos.', 't-err'); return; }
+  const s = (state.staffList_ || []).find(x => String(x.id) === String(staffId));
+  if (!s) { showToast('No se encontró el usuario.', 't-err'); return; }
+  if (s.role === 'superadmin') { showToast('El Super Admin tiene acceso total.', 't-info'); return; }
+
+  const ov = (s.perm_overrides && typeof s.perm_overrides === 'object') ? s.perm_overrides : {};
+  const rolePerm = (state.permConfig_ || {})[s.role] || {};
+
+  const rows = ALL_PAGES.map(p => {
+    // Estado efectivo actual: override si existe, si no el del rol
+    let on = (p.id in ov) ? ov[p.id] === true : rolePerm[p.id] === true;
+    const forced = (s.role === 'cajero' && p.id === 'cargas'); // siempre activo
+    if (forced) on = true;
+    return '<label class="uperm-row">' +
+        '<span>' + esc(p.label) + (forced ? ' <span style="font-size:.6rem;color:var(--muted)">(fijo)</span>' : '') + '</span>' +
+        '<input type="checkbox" class="uperm-check" data-page="' + p.id + '" ' +
+          (on ? 'checked' : '') + ' ' + (forced ? 'disabled' : '') + ' style="accent-color:var(--accent);width:18px;height:18px">' +
+      '</label>';
+  }).join('');
+
+  showModal({
+    title: '🔒 Secciones de ' + cap(s.name),
+    wide: true,
+    body:
+      '<div style="font-size:.78rem;color:var(--muted);margin-bottom:10px">Destildá una sección para bloqueársela a <strong>' + esc(cap(s.name)) + '</strong> sin afectar al resto de su rol (' + esc(s.role) + '). Se aplica en vivo (~20s).</div>' +
+      '<div class="uperm-list">' + rows + '</div>',
+    actions:
+      '<button class="btn-modal" data-modal-cancel>Cancelar</button>' +
+      '<button class="btn-tiny" style="background:rgba(255,255,255,.06)" onclick="resetUserPerms(&quot;' + s.id + '&quot;)">Volver al rol</button>' +
+      '<button class="btn-primary" onclick="saveUserPerms(&quot;' + s.id + '&quot;)">Guardar</button>',
+  });
+}
+
+async function saveUserPerms(staffId) {
+  const s = (state.staffList_ || []).find(x => String(x.id) === String(staffId));
+  if (!s) return;
+  const rolePerm = (state.permConfig_ || {})[s.role] || {};
+  const overrides = {};
+  document.querySelectorAll('.uperm-check').forEach(cb => {
+    const page = cb.dataset.page;
+    const checked = cb.checked;
+    const forced = (s.role === 'cajero' && page === 'cargas');
+    if (forced) return; // no se guarda, siempre activo
+    // Solo guardar como override lo que DIFIERE del rol
+    if (checked !== (rolePerm[page] === true)) overrides[page] = checked;
+  });
+  showLoad(true);
+  const { error } = await db.from('staff').update({ perm_overrides: overrides }).eq('id', staffId);
+  showLoad(false);
+  if (error) { showToast('No se pudo guardar: ' + (error.message || error), 't-err'); console.error(error); return; }
+  closeModal();
+  const n = Object.keys(overrides).length;
+  showToast(n ? ('✔ ' + n + ' sección(es) personalizada(s) para ' + cap(s.name) + '.') : ('✔ ' + cap(s.name) + ' vuelve a los permisos de su rol.'), 't-ok');
+  await loadStaff();
+}
+
+async function resetUserPerms(staffId) {
+  showLoad(true);
+  const { error } = await db.from('staff').update({ perm_overrides: {} }).eq('id', staffId);
+  showLoad(false);
+  if (error) { showToast('No se pudo restablecer: ' + (error.message || error), 't-err'); return; }
+  closeModal();
+  showToast('Permisos restablecidos al rol.', 't-ok');
+  await loadStaff();
+}
+
 async function doLogin() {
   const name = document.getElementById('lu').value.trim().toLowerCase();
   const pass = document.getElementById('lp').value;
@@ -980,6 +1245,7 @@ async function doLogin() {
     if (error || !data) { document.getElementById('lerr').textContent = 'Usuario o contraseña incorrectos.'; return; }
     state.currentUser = data;
     try { await db.from('staff').update({ last_login: new Date().toISOString() }).eq('id', data.id); } catch(_) {}
+    startHeartbeat();
     document.getElementById('login-screen').style.display = 'none';
 
     // Show welcome overlay while app loads in background
@@ -1008,6 +1274,8 @@ async function doLogin() {
 }
 
 function doLogout() {
+  stopHeartbeat();
+  stopOnlinePolling();
   state.currentUser = null; state.selBonus_ = null;
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
@@ -1045,6 +1313,7 @@ function setupTabs() {
 function showPage(p) {
   const pageEl = document.getElementById('page-'+p);
   if (!pageEl) { console.warn('showPage: página no encontrada:', p); return; }
+  stopOnlinePolling(); // se reactiva en initPage si entra a Admin
   document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   pageEl.classList.add('active');
@@ -1054,7 +1323,7 @@ function showPage(p) {
 }
 
 async function initPage(p) {
-  if (p === 'inicio')    { await populateInicioTurnos(); applyInicioFilters(); }
+  if (p === 'inicio')    { startHeroClock(); await populateInicioTurnos(); applyInicioFilters(); loadReporte(); }
   if (p === 'cargas') {
     renderBonusButtons(); await loadCounters(); updateTotal();
     const csSel = document.getElementById('cargas-shift-sel');
@@ -1072,7 +1341,7 @@ async function initPage(p) {
   if (p === 'cuentas')   await loadCuentas();
   if (p === 'metricas')  await loadMetricas();
   if (p === 'turnos')    await loadTurnos();
-  if (p === 'admin')     { await loadAdmin(); await populateAppearanceForm(); }
+  if (p === 'admin')     { await loadAdmin(); await populateAppearanceForm(); startOnlinePolling(); }
   
 }
 
@@ -1176,7 +1445,7 @@ document.addEventListener('click', () => {
 function setBG(input) {
   const file = input.files[0]; if (!file) return;
   const r = new FileReader();
-  r.onload = e => { document.getElementById('bg-layer').style.backgroundImage = `url(${e.target.result})`; localStorage.setItem('casino_bg', e.target.result); };
+  r.onload = e => { applyBg({ bg: e.target.result, bgType: 'image' }); };
   r.readAsDataURL(file);
 }
 
@@ -1225,6 +1494,110 @@ async function applyInicioFilters() {
   await loadInicio(filters);
 }
 
+/* Atajos rápidos de rango de fecha para el inicio */
+function setInicioRange(preset) {
+  const desde = document.getElementById('inicio-fecha-desde');
+  const hasta = document.getElementById('inicio-fecha-hasta');
+  const hd    = document.getElementById('inicio-hora-desde');
+  const hh    = document.getElementById('inicio-hora-hasta');
+  if (!desde || !hasta) return;
+
+  const pad = n => String(n).padStart(2, '0');
+  const fmt = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  const now = new Date();
+  let from = new Date(now), to = new Date(now);
+
+  if (preset === 'ayer') {
+    from.setDate(now.getDate() - 1); to.setDate(now.getDate() - 1);
+  } else if (preset === '7') {
+    from.setDate(now.getDate() - 6);
+  } else if (preset === 'mes') {
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+  } // 'hoy' deja from = to = hoy
+
+  desde.value = fmt(from);
+  hasta.value = fmt(to);
+  if (hd) hd.value = '00:00';
+  if (hh) hh.value = '23:59';
+
+  document.querySelectorAll('.inicio-preset').forEach(b =>
+    b.classList.toggle('active', b.dataset.preset === preset));
+
+  applyInicioFilters();
+  loadReporte();
+}
+
+/* ── HERO / BIENVENIDA DEL INICIO ──────────────────────── */
+let heroClockTimer_ = null;
+let inicioLiveTimer_ = null;
+let lastInicioUpdate_ = null;
+
+function updateHeroGreeting() {
+  const g = document.getElementById('hero-greeting');
+  const d = document.getElementById('hero-date');
+  if (!g) return;
+  const now = new Date();
+  const h = now.getHours();
+  const greet = h < 6 ? '🌙 Buenas noches' : h < 12 ? '🌅 Buenos días' : h < 19 ? '☀️ Buenas tardes' : '🌙 Buenas noches';
+  const name = cap(state.currentUser?.name || '');
+  g.textContent = name ? `${greet}, ${name}` : greet;
+  if (d) {
+    const fecha = now.toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long' });
+    d.textContent = fecha.charAt(0).toUpperCase() + fecha.slice(1);
+  }
+}
+
+function updateHeroClock() {
+  const c = document.getElementById('hero-clock');
+  if (c) c.textContent = new Date().toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function startHeroClock() {
+  updateHeroGreeting();
+  updateHeroClock();
+  if (heroClockTimer_) clearInterval(heroClockTimer_);
+  heroClockTimer_ = setInterval(() => { updateHeroClock(); }, 1000);
+}
+
+/* Indicador "actualizado hace Xs" */
+function markInicioUpdated() {
+  lastInicioUpdate_ = Date.now();
+  renderInicioLive();
+  if (inicioLiveTimer_) clearInterval(inicioLiveTimer_);
+  inicioLiveTimer_ = setInterval(renderInicioLive, 1000);
+}
+
+function renderInicioLive() {
+  const el = document.getElementById('hero-live-text');
+  if (!el || !lastInicioUpdate_) return;
+  const secs = Math.floor((Date.now() - lastInicioUpdate_) / 1000);
+  if (secs < 3) el.textContent = 'en vivo';
+  else if (secs < 60) el.textContent = `hace ${secs}s`;
+  else el.textContent = `hace ${Math.floor(secs / 60)}m`;
+}
+
+/* Animación count-up para las tarjetas de estadística */
+const inicioStatCache_ = {};
+function animateValue(id, end, opts = {}) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const { prefix = '', dur = 700 } = opts;
+  const start = inicioStatCache_[id] ?? 0;
+  inicioStatCache_[id] = end;
+  // Si no cambió (típico en auto-refresh), no animar
+  if (start === end) { el.textContent = prefix + fmtNum(end); return; }
+  const startT = performance.now();
+  function frame(now) {
+    const p = Math.min(1, (now - startT) / dur);
+    const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+    const val = Math.round(start + (end - start) * eased);
+    el.textContent = prefix + fmtNum(val);
+    if (p < 1) requestAnimationFrame(frame);
+    else el.textContent = prefix + fmtNum(end);
+  }
+  requestAnimationFrame(frame);
+}
+
 /* ── INICIO MEJORADO ───────────────────────────────────── */
 async function loadInicio(filters) {
   showLoad(true);
@@ -1257,14 +1630,18 @@ async function loadInicio(filters) {
     okCharges.forEach(c => { cajeroMap[c.cajero] = (cajeroMap[c.cajero]||0)+1; });
     const topCajero = Object.entries(cajeroMap).sort((a,b)=>b[1]-a[1])[0]?.[0] || '—';
 
-    // Actualizar tarjetas
-    const set = (id, val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
-    set('st-total-hoy',    '$'+fmtNum(totalMonto));
-    set('st-bonos-hoy',    '$'+fmtNum(totalBonos));
-    set('st-retiros-pend', pendingCount);
-    set('st-jugadores',    playersCount);
-    set('st-cargas-hoy',   cargasCount);
-    set('st-cajero-top',   cap(topCajero));
+    // Actualizar tarjetas con animación count-up
+    animateValue('st-total-hoy',    totalMonto, { prefix: '$' });
+    animateValue('st-bonos-hoy',    totalBonos, { prefix: '$' });
+    animateValue('st-retiros-pend', pendingCount);
+    animateValue('st-jugadores',    playersCount);
+    animateValue('st-cargas-hoy',   cargasCount);
+    animateValue('st-cargas-foot',  cargasCount);
+    const cajeroTopEl = document.getElementById('st-cajero-top');
+    if (cajeroTopEl) cajeroTopEl.textContent = cap(topCajero);
+
+    // Marcar última actualización (indicador "en vivo")
+    markInicioUpdated();
 
     // Actividad reciente (usamos los últimos 12 cargas)
     const recentAll = charges.slice(0,12); // ya vienen ordenadas por defecto? No, pero basta con tomar los primeros 12 de la lista devuelta (que no está ordenada por fecha si no se pidió orden). Vamos a pedir ordenadas:
@@ -1285,7 +1662,7 @@ async function loadInicio(filters) {
           </div>
           <div class="activity-time">${hora}</div>
         </div>`;
-      }).join('') : '<div style="color:var(--muted);font-size:.82rem;padding:16px 0">Sin actividad reciente.</div>';
+      }).join('') : '<div class="empty-state"><div class="es-icon">🌙</div><div class="es-title">Sin actividad reciente</div><div class="es-sub">Las cargas del período elegido aparecerán acá.</div></div>';
     }
 
     // El reporte se sigue cargando con loadReporte, pero respetando filtros? loadReporte usa su propio periodo. De momento no fusionamos, así que sigue igual.
@@ -1316,11 +1693,21 @@ function renderBonusButtons() {
     const isPct  = b.bonus_type === 'percentage';
     const pct    = b.percentage || b.amount; // amount stores pct value for pct bonuses
     const calcAmt = isPct ? Math.round(amount * pct / 100) : b.amount;
-    if (isPct) {
-      btn.innerHTML = '<span style="font-size:1.1rem;font-weight:700">' + pct + '%</span><br><span style="font-size:.72rem">' + esc(b.name) + '</span>' +
-        (amount > 0 ? '<br><span style="font-size:.7rem;opacity:.7">= $' + fmtNum(calcAmt) + '</span>' : '');
+
+    if (b.image_only && b.image_url) {
+      // Solo imagen: ocupa todo el botón, sin texto
+      btn.style.cssText += 'padding:0;overflow:hidden;position:relative;min-height:96px;';
+      btn.innerHTML = '<img src="' + esc(b.image_url) + '" alt="' + esc(b.name) + '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">';
     } else {
-      btn.innerHTML = '<span style="font-size:1.1rem;font-weight:700">$' + fmtNum(b.amount) + '</span><br><span style="font-size:.72rem">' + esc(b.name) + '</span>';
+      const imgHtml = b.image_url
+        ? '<img src="' + esc(b.image_url) + '" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:8px;display:block;margin:0 auto 4px">'
+        : '';
+      if (isPct) {
+        btn.innerHTML = imgHtml + '<span style="font-size:1.1rem;font-weight:700">' + pct + '%</span><br><span style="font-size:.72rem">' + esc(b.name) + '</span>' +
+          (amount > 0 ? '<br><span style="font-size:.7rem;opacity:.7">= $' + fmtNum(calcAmt) + '</span>' : '');
+      } else {
+        btn.innerHTML = imgHtml + '<span style="font-size:1.1rem;font-weight:700">$' + fmtNum(b.amount) + '</span><br><span style="font-size:.72rem">' + esc(b.name) + '</span>';
+      }
     }
     btn.onclick = function() { selBonus(b); };
     grid.appendChild(btn);
@@ -2075,7 +2462,7 @@ async function loadRetiros() {
     let q = db.from('withdrawals').select('*').not('status','eq','deleted').order('created_at', { ascending: false }).limit(100);
     if (flt) q = q.eq('status', flt);
     const { data: wds } = await q;
-    if (!wds?.length) { document.getElementById('retiros-list').innerHTML = '<div style="color:var(--muted);text-align:center;padding:30px">Sin retiros</div>'; return; }
+    if (!wds?.length) { document.getElementById('retiros-list').innerHTML = '<div class="empty-state"><div class="es-icon">💸</div><div class="es-title">Sin retiros</div><div class="es-sub">No hay retiros pendientes ni recientes.</div></div>'; return; }
 
     const ids = wds.map(w => w.id);
     const { data: parts } = await db.from('withdrawal_parts').select('*').in('withdrawal_id', ids).order('part_number');
@@ -2274,7 +2661,7 @@ async function loadJugadores() {
     if (s !== '') qb = qb.eq('stars', parseInt(s));
     const { data } = await qb;
     const grid = document.getElementById('players-grid');
-    if (!data?.length) { grid.innerHTML = '<div style="color:var(--muted);padding:20px">Sin jugadores registrados.</div>'; return; }
+    if (!data?.length) { grid.innerHTML = '<div class="empty-state"><div class="es-icon">👤</div><div class="es-title">Sin jugadores registrados</div><div class="es-sub">Aparecerán acá a medida que registres cargas.</div></div>'; return; }
     grid.innerHTML = data.map(function(p) {
       var ph  = p.phone     ? '<span style="font-size:.65rem;color:var(--blue)">📱 ' + esc(p.phone) + '</span>' : '';
       var pr  = p.principal ? '<span style="font-size:.65rem;color:var(--purple)">🏦 ' + esc(p.principal) + '</span>' : '';
@@ -2397,22 +2784,27 @@ async function loadBonos() {
 
   const { data } = await db.from('bonus_types').select('*').order('created_at', { ascending: false });
   const list = document.getElementById('bonuses-list');
-  if (!data?.length) { list.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Sin bonos registrados.</div>'; return; }
+  if (!data?.length) { list.innerHTML = '<div class="empty-state"><div class="es-icon">🎁</div><div class="es-title">Sin bonos registrados</div><div class="es-sub">Creá tu primer bono con el formulario de arriba.</div></div>'; return; }
+  state.bonusTypes_ = data;
 
   list.innerHTML = data.map(b => {
     const dt = new Date(b.created_at).toLocaleDateString('es-AR', {day:'2-digit',month:'2-digit',year:'numeric'});
     const statusBadge = { active:`<span class="badge badge-act">ACTIVO</span>`, expired:`<span class="badge badge-exp">EXPIRADO</span>`, cancelled:`<span class="badge badge-can">CANCELADO</span>` }[b.status] || '';
     const actions = isSA ? `
       <div class="bonus-actions">
+        <button class="btn-status" style="color:var(--accent);border-color:rgba(240,192,64,.3)" onclick="showBonusTypeEdit('${b.id}')">✏️ Editar</button>
         ${b.status !== 'active'   ? `<button class="btn-status" style="color:var(--green);border-color:rgba(64,192,112,.3)" onclick="setBonusStatus('${b.id}','active')">Activar</button>` : ''}
         ${b.status !== 'expired'  ? `<button class="btn-status" style="color:var(--muted);border-color:var(--glass-b)" onclick="setBonusStatus('${b.id}','expired')">Expirar</button>` : ''}
         ${b.status !== 'cancelled'? `<button class="btn-status" style="color:var(--red);border-color:rgba(224,64,64,.25)" onclick="setBonusStatus('${b.id}','cancelled')">Cancelar</button>` : ''}
       </div>` : '';
     return `<div class="bonus-row">
-      <div>
-        <div class="bonus-name">${esc(b.name)}</div>
-        <div class="bonus-cond">${esc(b.conditions||'')}</div>
-        <div style="font-size:.7rem;color:var(--muted);margin-top:4px">Creado por ${esc(b.created_by)} · ${dt}</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        ${b.image_url ? `<img src="${esc(b.image_url)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:8px;flex-shrink:0">` : ''}
+        <div>
+          <div class="bonus-name">${esc(b.name)}</div>
+          <div class="bonus-cond">${esc(b.conditions||'')}</div>
+          <div style="font-size:.7rem;color:var(--muted);margin-top:4px">Creado por ${esc(b.created_by)} · ${dt}</div>
+        </div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
         <div class="bonus-amount">${b.bonus_type === 'percentage' ? b.percentage + '%' : '$' + fmtNum(b.amount)}</div>
@@ -2427,6 +2819,13 @@ function toggleBonusType() {
   const t = document.getElementById('bn-type').value;
   document.getElementById('bn-fixed-col').style.display = t === 'fixed' ? '' : 'none';
   document.getElementById('bn-pct-col').style.display   = t === 'percentage' ? '' : 'none';
+}
+
+function bonusImgUpload(input) {
+  const file = input.files[0]; if (!file) return;
+  const r = new FileReader();
+  r.onload = e => { const inp = document.getElementById('bn-img'); if (inp) inp.value = e.target.result; };
+  r.readAsDataURL(file);
 }
 
 async function createBonus() {
@@ -2445,18 +2844,25 @@ async function createBonus() {
     amount = percentage; // store percentage value in amount field for pct bonuses
   }
 
+  const imgUrl = document.getElementById('bn-img')?.value.trim() || '';
+  const imgOnly = !!document.getElementById('bn-img-only')?.checked;
+
   showLoad(true);
-  await db.from('bonus_types').insert({
+  const { error: bnErr } = await db.from('bonus_types').insert({
     name, amount, conditions: cond,
     bonus_type:  btype,
     percentage:  btype === 'percentage' ? percentage : 0,
+    image_url:   imgUrl,
+    image_only:  imgOnly,
     created_by:  state.currentUser.name
   });
+  if (bnErr) { showToast('No se pudo crear el bono: ' + (bnErr.message || bnErr), 't-err'); console.error(bnErr); showLoad(false); return; }
   // Reset form
   document.getElementById('bn-name').value = '';
   document.getElementById('bn-amount').value = '';
   document.getElementById('bn-cond').value = '';
   const bnImg = document.getElementById('bn-img'); if(bnImg) bnImg.value = '';
+  const bnImgOnly = document.getElementById('bn-img-only'); if(bnImgOnly) bnImgOnly.checked = false;
   document.getElementById('bn-pct-num').value = '50';
   document.getElementById('bn-pct').value = '50';
   document.getElementById('bn-pct-label').textContent = '50%';
@@ -2475,6 +2881,95 @@ async function setBonusStatus(id, status) {
   renderBonusButtons();
   showLoad(false);
 }
+
+function showBonusTypeEdit(id) {
+  if (state.currentUser?.role !== 'superadmin') { showToast('Sin permisos.', 't-err'); return; }
+  const b = (state.bonusTypes_ || []).find(x => String(x.id) === String(id));
+  if (!b) { showToast('No se encontró el bono.', 't-err'); return; }
+  const v = s => (s == null ? '' : String(s));
+  const isPct = b.bonus_type === 'percentage';
+  showModal({
+    title: '✏️ Editar bono',
+    wide: true,
+    body:
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+        '<div class="form-col"><label>NOMBRE</label>' +
+          '<input id="be-bn-name" class="inp" value="' + esc(v(b.name)) + '"></div>' +
+        '<div class="form-col"><label>TIPO DE BONO</label>' +
+          '<select id="be-bn-type" class="inp-sel" style="width:100%" onchange="bonusEditToggleType()">' +
+            '<option value="fixed"' + (!isPct ? ' selected' : '') + '>💰 Monto fijo ($)</option>' +
+            '<option value="percentage"' + (isPct ? ' selected' : '') + '>📊 Porcentaje (%)</option>' +
+          '</select></div>' +
+        '<div class="form-col" id="be-bn-fixed-col"' + (isPct ? ' style="display:none"' : '') + '><label>MONTO ($)</label>' +
+          '<input id="be-bn-amount" class="inp" type="number" min="0" value="' + esc(v(isPct ? '' : b.amount)) + '"></div>' +
+        '<div class="form-col" id="be-bn-pct-col"' + (!isPct ? ' style="display:none"' : '') + '><label>PORCENTAJE (%)</label>' +
+          '<input id="be-bn-pct" class="inp" type="number" min="0" max="100" value="' + esc(v(isPct ? (b.percentage || b.amount) : '')) + '"></div>' +
+        '<div class="form-col"><label>CONDICIONES / DESCRIPCIÓN</label>' +
+          '<input id="be-bn-cond" class="inp" value="' + esc(v(b.conditions)) + '"></div>' +
+        '<div class="form-col"><label>IMAGEN (opcional)</label>' +
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            '<input id="be-bn-img" class="inp" value="' + esc(v(b.image_url)) + '" placeholder="URL o subí un archivo..." style="flex:1">' +
+            '<label class="btn-tiny" style="cursor:pointer;white-space:nowrap">📁<input type="file" accept="image/*" style="display:none" onchange="bonusEditImgUpload(this)"></label>' +
+          '</div>' +
+          '<label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:.78rem;color:var(--muted);cursor:pointer">' +
+            '<input type="checkbox" id="be-bn-img-only"' + (b.image_only ? ' checked' : '') + ' style="accent-color:var(--accent)">' +
+            'Mostrar solo la imagen (sin texto), ocupa todo el botón' +
+          '</label></div>' +
+      '</div>',
+    actions:
+      '<button class="btn-modal" data-modal-cancel>Cancelar</button>' +
+      '<button class="btn-primary" onclick="saveBonusTypeEdit(&quot;' + b.id + '&quot;)">Guardar cambios</button>',
+  });
+}
+
+function bonusEditToggleType() {
+  const t = document.getElementById('be-bn-type')?.value;
+  const fc = document.getElementById('be-bn-fixed-col');
+  const pc = document.getElementById('be-bn-pct-col');
+  if (fc) fc.style.display = t === 'fixed' ? '' : 'none';
+  if (pc) pc.style.display = t === 'percentage' ? '' : 'none';
+}
+function bonusEditImgUpload(input) {
+  const file = input.files[0]; if (!file) return;
+  const r = new FileReader();
+  r.onload = e => { const inp = document.getElementById('be-bn-img'); if (inp) inp.value = e.target.result; };
+  r.readAsDataURL(file);
+}
+
+async function saveBonusTypeEdit(id) {
+  const name  = document.getElementById('be-bn-name')?.value.trim();
+  const btype = document.getElementById('be-bn-type')?.value || 'fixed';
+  const cond  = document.getElementById('be-bn-cond')?.value.trim() || '';
+  const img   = document.getElementById('be-bn-img')?.value.trim() || '';
+  const imgOnly = !!document.getElementById('be-bn-img-only')?.checked;
+  if (!name) { showToast('El nombre es obligatorio.', 't-err'); return; }
+
+  let amount = 0, percentage = 0;
+  if (btype === 'fixed') {
+    amount = parseFloat(document.getElementById('be-bn-amount')?.value);
+    if (!amount || amount <= 0) { showToast('Ingresá un monto válido.', 't-err'); return; }
+  } else {
+    percentage = parseFloat(document.getElementById('be-bn-pct')?.value) || 0;
+    if (percentage < 0 || percentage > 100) { showToast('El porcentaje debe ser entre 0 y 100.', 't-err'); return; }
+    amount = percentage; // se guarda el % en amount para bonos porcentuales
+  }
+
+  showLoad(true);
+  const { error } = await db.from('bonus_types').update({
+    name, amount, conditions: cond, bonus_type: btype,
+    percentage: btype === 'percentage' ? percentage : 0,
+    image_url: img, image_only: imgOnly,
+  }).eq('id', id);
+  if (error) {
+    showToast('No se pudo guardar: ' + (error.message || error), 't-err');
+    console.error(error); showLoad(false); return;
+  }
+  closeModal();
+  await Promise.all([loadBonos(), loadActiveBonuses()]);
+  renderBonusButtons();
+  showLoad(false);
+  showToast('✔ Bono actualizado.', 't-ok');
+}
 /* ══════════════════════════════════════════════════════════
    ADMIN
    ══════════════════════════════════════════════════════════ */
@@ -2486,6 +2981,7 @@ async function loadAdmin() {
 async function loadStaff() {
   const { data } = await db.from('staff').select('*').eq('active', true).order('name');
   const myLevel = myRoleLevel();
+  state.staffList_ = data || [];
 
   const list = document.getElementById('staff-list');
   const isSA = state.currentUser.role === 'superadmin';
@@ -2502,6 +2998,11 @@ async function loadStaff() {
             onchange="toggleSaAccess('${s.id}','${esc(s.name)}',this.checked)"> ★SA
         </label>`
       : '';
+    // Botón de override de secciones (solo SA, no para otros superadmin)
+    const ovCount = (s.perm_overrides && typeof s.perm_overrides === 'object') ? Object.keys(s.perm_overrides).length : 0;
+    const permsBtn = isSA && s.role !== 'superadmin'
+      ? `<button class="btn-status" style="color:var(--accent);border-color:rgba(240,192,64,.3)" onclick="showUserPerms('${s.id}')">🔒 Secciones${ovCount?` <span style="background:var(--accent);color:#1a1200;border-radius:8px;padding:0 5px;font-size:.6rem;font-weight:700">${ovCount}</span>`:''}</button>`
+      : '';
     return `<div class="staff-row">
       <div style="display:flex;align-items:center;gap:12px">
         ${avatarEdit}
@@ -2509,6 +3010,7 @@ async function loadStaff() {
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         ${saToggle}
+        ${permsBtn}
         <span class="staff-role-badge ${roleCls(s.role)}">${s.role.toUpperCase()}</span>
         <button class="btn-red" ${!canDel?'disabled title="Sin permiso"':''} onclick="delStaff('${s.id}','${esc(s.name)}')">Eliminar</button>
       </div>
@@ -3369,7 +3871,8 @@ document.addEventListener('click', e => {
 Object.assign(window, {
   acSearch, acSearchR, addBankAccount, addStaff,
   showBankEdit, saveBankEdit,
-  apBgUpload, applyInicioFilters, applyTheme, bannerClick,
+  apBgUpload, applyInicioFilters, applyTheme, bannerClick, toggleBgFields,
+  setInicioRange,
   addBannerSlide, removeBannerSlide, addBannerButton, removeBannerButton,
   setBannerField, setBannerBtnField, bannerFileUpload, renderBannerBuilder,
   clearStarImg, closeTurno, copyAllRetiroData, copyBankAccount,
@@ -3380,12 +3883,14 @@ Object.assign(window, {
   loadMetricas, loadReporte, loadRetiros, loadTurnos,
   markError, markPartDone, onMetPeriodChange, openPlayerProfile,
   openPlayerProfileByName, openTurno, pickPlayer, pickPlayerR,
-  renderBonusButtons, resetBankCounters, resetCounters, saveAppearance,
+  renderBonusButtons, resetBankCounters, resetCounters, saveAppearance, bonusImgUpload,
+  showBonusTypeEdit, saveBonusTypeEdit, bonusEditToggleType, bonusEditImgUpload,
   savePermissions, savePlayerStars, saveStarImg, selBonus,
   setActiveShift, setBG, setBonusStatus, setPlayerStars,
   setTopPeriod, showBonusEdit, showPage, toggleBankActive,
   toggleBannerFields, toggleBonusType, toggleNotifPanel, toggleSaAccess,
   toggleThemeDropdown, updateTotal, uploadStaffPhoto, uploadStarImg,
   toggleResetHistory, loadResetHistory,
+  showUserPerms, saveUserPerms, resetUserPerms, kickUser,
   copyText, closeModal,
 });

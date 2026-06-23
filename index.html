@@ -134,6 +134,24 @@
 
   <!-- PAGE: INICIO (Nuevo diseño con tarjetas y filtros) -->
   <div class="page" id="page-inicio">
+    <!-- Barra de bienvenida -->
+    <div class="inicio-hero">
+      <div class="hero-left">
+        <div class="hero-greeting" id="hero-greeting">Hola</div>
+        <div class="hero-date" id="hero-date">—</div>
+      </div>
+      <div class="hero-right">
+        <div class="hero-live"><span class="hero-live-dot"></span><span id="hero-live-text">en vivo</span></div>
+        <div class="hero-clock" id="hero-clock">--:--:--</div>
+      </div>
+    </div>
+    <!-- Atajos rápidos de rango -->
+    <div class="inicio-presets">
+      <button class="inicio-preset active" data-preset="hoy" onclick="setInicioRange('hoy')">Hoy</button>
+      <button class="inicio-preset" data-preset="ayer" onclick="setInicioRange('ayer')">Ayer</button>
+      <button class="inicio-preset" data-preset="7" onclick="setInicioRange('7')">Últimos 7 días</button>
+      <button class="inicio-preset" data-preset="mes" onclick="setInicioRange('mes')">Este mes</button>
+    </div>
     <!-- Barra de filtros -->
     <div class="inicio-filter-bar">
       <div class="filter-group">
@@ -162,36 +180,41 @@
     </div>
 
     <!-- Tarjetas de estadísticas -->
-    <div class="dashboard-grid" id="dashboard-cards">
-      <div class="stat-card" style="border-top: 3px solid var(--accent)">
+    <div class="inicio-stats">
+      <!-- Destacada: el dato principal -->
+      <div class="stat-card featured clickable" onclick="showPage('historial')">
         <div class="stat-card-icon">💰</div>
-        <div class="stat-card-value" id="st-total-hoy">—</div>
         <div class="stat-card-label">CARGADO HOY</div>
+        <div class="stat-card-value" id="st-total-hoy">—</div>
+        <div class="featured-foot"><span id="st-cargas-foot">—</span> cargas registradas</div>
       </div>
-      <div class="stat-card" style="border-top: 3px solid var(--accent2)">
-        <div class="stat-card-icon">🎁</div>
-        <div class="stat-card-value" id="st-bonos-hoy">—</div>
-        <div class="stat-card-label">BONOS HOY</div>
-      </div>
-      <div class="stat-card" style="border-top: 3px solid var(--blue)">
-        <div class="stat-card-icon">📤</div>
-        <div class="stat-card-value" id="st-retiros-pend">—</div>
-        <div class="stat-card-label">RETIROS PENDIENTES</div>
-      </div>
-      <div class="stat-card" style="border-top: 3px solid var(--purple)">
-        <div class="stat-card-icon">👥</div>
-        <div class="stat-card-value" id="st-jugadores">—</div>
-        <div class="stat-card-label">JUGADORES</div>
-      </div>
-      <div class="stat-card" style="border-top: 3px solid var(--green)">
-        <div class="stat-card-icon">📋</div>
-        <div class="stat-card-value" id="st-cargas-hoy">—</div>
-        <div class="stat-card-label">CARGAS HOY</div>
-      </div>
-      <div class="stat-card" style="border-top: 3px solid var(--red)">
-        <div class="stat-card-icon">⚡</div>
-        <div class="stat-card-value" id="st-cajero-top" style="font-size:1.5rem">—</div>
-        <div class="stat-card-label">CAJERO TOP</div>
+      <!-- Secundarias -->
+      <div class="dashboard-grid" id="dashboard-cards">
+        <div class="stat-card clickable" style="border-top: 3px solid var(--accent2)" onclick="showPage('bonos')">
+          <div class="stat-card-icon">🎁</div>
+          <div class="stat-card-value" id="st-bonos-hoy">—</div>
+          <div class="stat-card-label">BONOS HOY</div>
+        </div>
+        <div class="stat-card clickable" style="border-top: 3px solid var(--blue)" onclick="showPage('retiros')">
+          <div class="stat-card-icon">📤</div>
+          <div class="stat-card-value" id="st-retiros-pend">—</div>
+          <div class="stat-card-label">RETIROS PENDIENTES</div>
+        </div>
+        <div class="stat-card clickable" style="border-top: 3px solid var(--purple)" onclick="showPage('jugadores')">
+          <div class="stat-card-icon">👥</div>
+          <div class="stat-card-value" id="st-jugadores">—</div>
+          <div class="stat-card-label">JUGADORES</div>
+        </div>
+        <div class="stat-card clickable" style="border-top: 3px solid var(--green)" onclick="showPage('historial')">
+          <div class="stat-card-icon">📋</div>
+          <div class="stat-card-value" id="st-cargas-hoy">—</div>
+          <div class="stat-card-label">CARGAS HOY</div>
+        </div>
+        <div class="stat-card clickable" style="border-top: 3px solid var(--red)" onclick="showPage('metricas')">
+          <div class="stat-card-icon">⚡</div>
+          <div class="stat-card-value" id="st-cajero-top" style="font-size:1.5rem">—</div>
+          <div class="stat-card-label">CAJERO TOP</div>
+        </div>
       </div>
     </div>
 
@@ -622,6 +645,19 @@
           <input class="inp" id="bn-cond" placeholder="Condiciones de uso, límites, etc.">
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-col" style="flex:2">
+          <label>IMAGEN DEL BONO (opcional)</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input class="inp" id="bn-img" placeholder="URL de imagen o subí un archivo..." style="flex:1">
+            <label class="btn-tiny" style="cursor:pointer;white-space:nowrap">📁<input type="file" accept="image/*" style="display:none" onchange="bonusImgUpload(this)"></label>
+          </div>
+          <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:.78rem;color:var(--muted);cursor:pointer">
+            <input type="checkbox" id="bn-img-only" style="accent-color:var(--accent)">
+            Mostrar solo la imagen (sin texto), ocupa todo el botón
+          </label>
+        </div>
+      </div>
       <button class="btn-primary" onclick="createBonus()">+ CREAR BONO</button>
     </div>
     <div class="card">
@@ -677,7 +713,11 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;flex-wrap:wrap" id="admin-grid">
       <!-- Staff management -->
       <div class="card" style="grid-column:1">
-        <div class="card-title">PERSONAL REGISTRADO</div>
+        <div class="card-title-row">
+          <div class="card-title">🟢 EN LÍNEA <span id="online-count" class="online-count">0</span></div>
+        </div>
+        <div id="online-users" class="online-list"><div style="color:var(--muted);font-size:.8rem;padding:8px 0">Cargando...</div></div>
+        <div class="card-title" style="margin-top:14px">PERSONAL REGISTRADO</div>
         <div class="staff-list" id="staff-list"></div>
         <div class="card-title" style="margin-top:4px">NUEVO USUARIO</div>
         <div class="form-row">
@@ -733,7 +773,7 @@
                 💡 Para video sin lageo agregá a tu URL de Cloudinary:
                 <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px">/q_auto,f_auto,w_1920,br_2m/</code>
               </div>
-              <label class="btn-tiny" style="cursor:pointer;white-space:nowrap;display:inline-flex">📁 Subir imagen<input type="file" accept="image/*" style="display:none" onchange="apBgUpload(this)"></label>
+              <label class="btn-tiny" id="ap-bg-upload" style="cursor:pointer;white-space:nowrap;display:inline-flex">📁 Subir imagen<input type="file" accept="image/*" style="display:none" onchange="apBgUpload(this)"></label>
             </div>
           </label>
           <label class="field" style="display:block;margin-bottom:12px">

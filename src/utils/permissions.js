@@ -30,6 +30,13 @@ export function canAccess(page) {
   const u = state.currentUser;
   if (!u) return false;
   if (u.role === 'superadmin') return true;
+  // Override por usuario (le gana al permiso del rol)
+  const ov = u.perm_overrides;
+  if (ov && typeof ov === 'object' && page in ov) {
+    // El cajero SIEMPRE conserva "cargas", no se puede bloquear
+    if (u.role === 'cajero' && page === 'cargas') return true;
+    return ov[page] === true;
+  }
   const cfg = state.permConfig_ || DEFAULT_PERMS;
   const rolePerm = cfg[u.role];
   if (rolePerm && page in rolePerm) return rolePerm[page] === true;
