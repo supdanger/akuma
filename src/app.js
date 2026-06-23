@@ -124,9 +124,8 @@ function applyAppearance(ap) {
   if (!ap) return;
   // Tema
   if (ap.theme !== undefined) {
-    const themes = { '':['Dorado','#f0c040'], emerald:['Esmeralda','#30d980'], crimson:['Carmesí','#e04060'], sapphire:['Zafiro','#4090ff'], violet:['Violeta','#a060ff'], rose:['Rosa','#ff70b0'], arctic:['Ártico','#80e0ff'] };
-    const [tName, tColor] = themes[ap.theme] || themes[''];
-    applyTheme(ap.theme, tName, tColor, null);
+    const t = THEMES[ap.theme] || THEMES[''];
+    applyTheme(ap.theme, t.name, t.color, null);
   }
   // Fondo (imagen o video)
   applyBg(ap);
@@ -147,9 +146,8 @@ async function loadAppearance() {
 
     // Tema de color
     if (ap.theme !== undefined) {
-      const themes = { '':['Dorado','#f0c040'], emerald:['Esmeralda','#30d980'], crimson:['Carmesí','#e04060'], sapphire:['Zafiro','#4090ff'], violet:['Violeta','#a060ff'], rose:['Rosa','#ff70b0'], arctic:['Ártico','#80e0ff'] };
-      const [name, color] = themes[ap.theme] || themes[''];
-      applyTheme(ap.theme, name, color, null);
+      const t = THEMES[ap.theme] || THEMES[''];
+      applyTheme(ap.theme, t.name, t.color, null);
     }
 
     // Imagen o video de fondo
@@ -518,6 +516,7 @@ async function populateAppearanceForm() {
     const { data } = await db.from('settings').select('value').eq('key','appearance').single();
     const ap = data?.value || {};
 
+    populateThemeSelect();
     const th = document.getElementById('ap-theme');
     if (th) th.value = ap.theme ?? '';
 
@@ -902,6 +901,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const savedTheme = localStorage.getItem('casino_theme') || '';
   const t = THEMES[savedTheme] || THEMES[''];
   applyTheme(savedTheme, t.name, t.color, null);
+  renderThemeOptions();
   try {
     await loadStarImages();
     await loadAppearance();
@@ -1415,8 +1415,41 @@ function applyTheme(theme, name, color, e) {
   document.getElementById('theme-dropdown')?.classList.remove('open');
 }
 
+/* Cambio de tema desde el selector del panel de apariencia */
+function apThemeChange(key) {
+  const t = THEMES[key] || THEMES[''];
+  applyTheme(key, t.name, t.color, null);
+}
+
+/* Genera las opciones del menú de temas desde THEMES (escalable) */
+function renderThemeOptions() {
+  const dd = document.getElementById('theme-dropdown');
+  if (!dd) return;
+  const cur = document.documentElement.dataset.theme || '';
+  dd.innerHTML = Object.entries(THEMES).map(([key, t]) => {
+    const active = key === cur ? ' active' : '';
+    const nameJs = t.name.replace(/'/g, "\\'");
+    return '<div class="theme-option' + active + '" data-theme="' + key + '" ' +
+      'onclick="applyTheme(\'' + key + '\',\'' + nameJs + '\',\'' + t.color + '\',event)">' +
+      '<div class="theme-swatch" style="background:' + t.color + ';box-shadow:0 0 6px ' + t.color + '"></div>' +
+      '<span class="theme-name">' + (t.icon || '●') + ' ' + esc(t.name) + '</span></div>';
+  }).join('');
+}
+
+/* Llena el <select> de tema del panel de apariencia */
+function populateThemeSelect() {
+  const sel = document.getElementById('ap-theme');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = Object.entries(THEMES).map(([key, t]) =>
+    '<option value="' + key + '">' + (t.icon || '●') + ' ' + esc(t.name) + (key === '' ? ' (default)' : '') + '</option>'
+  ).join('');
+  sel.value = cur;
+}
+
 function toggleThemeDropdown(e) {
   e.stopPropagation();
+  renderThemeOptions();
   const dd = document.getElementById('theme-dropdown');
   const btn = document.getElementById('theme-switcher');
   if (!dd.classList.contains('open')) {
@@ -3773,21 +3806,131 @@ function setNotifLastSeen(ts) {
 }
 
 
+/* Sonido de notificación (Web Audio) */
+let audioCtx_ = null;
+function notifSoundEnabled() {
+  try { return localStorage.getItem('casino_notif_sound') !== 'off'; } catch (_) { return true; }
+}
+function playNotifSound(urgent) {
+  if (!notifSoundEnabled()) return;
+  try {
+    audioCtx_ = audioCtx_ || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = audioCtx_;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    const beep = (freq, start, dur) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0, now + start);
+      g.gain.linearRampToValueAtTime(0.16, now + start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
+      o.start(now + start); o.stop(now + start + dur);
+    };
+    if (urgent) { beep(880, 0, 0.15); beep(660, 0.17, 0.22); }
+    else { beep(740, 0, 0.16); }
+  } catch (_) {}
+}
+
+/* Notificación del navegador (cuando la pestaña está en segundo plano) */
+function ensureNotifPermission() {
+  try {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  } catch (_) {}
+}
+function showBrowserNotif(title, body) {
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (!document.hidden) return; // solo si no está mirando la pestaña
+    const n = new Notification(title, { body, tag: 'akuma-notif', icon: '/favicon.ico' });
+    n.onclick = () => { window.focus(); try { toggleNotifPanel(); } catch (_) {} n.close(); };
+  } catch (_) {}
+}
+
+/* Navegar al registro de una notificación */
+function notifGo(kind, id, encName) {
+  const name = encName ? decodeURIComponent(encName) : '';
+  // cerrar panel
+  const panel = document.getElementById('notif-panel');
+  if (panel) { panel.classList.remove('show'); state.notifPanelOpen_ = false; }
+  if (kind === 'retiro') {
+    showPage('retiros');
+  } else if (kind === 'jugador') {
+    if (id) openPlayerProfile(id);
+    else { showPage('jugadores'); }
+  } else { // carga / error → historial filtrado por jugador
+    showPage('historial');
+    setTimeout(() => {
+      const inp = document.getElementById('h-search');
+      if (inp) { inp.value = name; loadHistorial(); }
+    }, 300);
+  }
+}
+
+let notifSeenIds_ = null; // null = todavía no se inicializó (primer poll no alerta)
+
 async function loadNotifications() {
   if (state.currentUser?.role !== 'superadmin') return;
   try {
     const since = new Date(Date.now() - 24*3600000).toISOString();
     const [chargesRes, retirosRes, errorsRes, playersRes] = await Promise.allSettled([
-      db.from('charges').select('id,player_name,amount,cajero,created_at').eq('status','ok').gte('created_at',since).order('created_at',{ascending:false}).limit(5),
-      db.from('withdrawals').select('id,player_name,total_amount,cajero,created_at').eq('status','pending').order('created_at',{ascending:false}).limit(5),
-      db.from('charges').select('id,player_name,amount,cajero,created_at').eq('status','error').gte('created_at',since).order('created_at',{ascending:false}).limit(5),
-      db.from('players').select('id,name,created_by,created_at').gte('created_at',since).order('created_at',{ascending:false}).limit(5),
+      db.from('charges').select('id,player_name,amount,cajero,created_at').eq('status','ok').gte('created_at',since).order('created_at',{ascending:false}).limit(8),
+      db.from('withdrawals').select('id,player_name,total_amount,cajero,created_at').eq('status','pending').order('created_at',{ascending:false}).limit(8),
+      db.from('charges').select('id,player_name,amount,cajero,created_at').eq('status','error').gte('created_at',since).order('created_at',{ascending:false}).limit(8),
+      db.from('players').select('id,name,created_by,created_at').gte('created_at',since).order('created_at',{ascending:false}).limit(8),
     ]);
     const charges    = chargesRes.status==='fulfilled'  ? chargesRes.value.data||[]  : [];
     const retiros    = retirosRes.status==='fulfilled'  ? retirosRes.value.data||[]  : [];
     const errors     = errorsRes.status==='fulfilled'   ? errorsRes.value.data||[]   : [];
     const newPlayers = playersRes.status==='fulfilled'  ? playersRes.value.data||[]  : [];
 
+    // ── Detección de novedades (para sonido / parpadeo / toast / navegador) ──
+    const tagId = (k, r) => k + ':' + r.id;
+    const currentIds = new Set([
+      ...retiros.map(r => tagId('retiro', r)),
+      ...errors.map(r => tagId('error', r)),
+      ...charges.map(r => tagId('carga', r)),
+      ...newPlayers.map(r => tagId('jugador', r)),
+    ]);
+
+    if (notifSeenIds_ === null) {
+      // Primer poll: registrar lo existente sin alertar
+      notifSeenIds_ = currentIds;
+    } else {
+      const fresh = { retiro: [], error: [], carga: [], jugador: [] };
+      let anyNew = false, anyCritical = false;
+      const pushFresh = (k, arr) => arr.forEach(r => {
+        if (!notifSeenIds_.has(tagId(k, r))) { fresh[k].push(r); anyNew = true; if (k === 'retiro' || k === 'error') anyCritical = true; }
+      });
+      pushFresh('retiro', retiros); pushFresh('error', errors);
+      pushFresh('carga', charges);  pushFresh('jugador', newPlayers);
+
+      if (anyNew) {
+        playNotifSound(anyCritical);
+        pulseNotifBell();
+        // Toast proactivo solo para lo crítico y con el panel cerrado
+        const panelOpen = document.getElementById('notif-panel')?.classList.contains('show');
+        if (!panelOpen) {
+          if (fresh.retiro[0]) showToast('💸 Nuevo retiro pendiente: ' + cap(fresh.retiro[0].player_name) + ' $' + fmtNum(fresh.retiro[0].total_amount), 't-err');
+          else if (fresh.error[0]) showToast('🔴 Carga marcada con error: ' + cap(fresh.error[0].player_name), 't-err');
+        }
+        // Notificación del navegador (si la pestaña está en segundo plano)
+        const total = fresh.retiro.length + fresh.error.length + fresh.carga.length + fresh.jugador.length;
+        if (total) {
+          const parts = [];
+          if (fresh.retiro.length) parts.push(fresh.retiro.length + ' retiro(s)');
+          if (fresh.error.length)  parts.push(fresh.error.length + ' error(es)');
+          if (fresh.carga.length)  parts.push(fresh.carga.length + ' carga(s)');
+          if (fresh.jugador.length) parts.push(fresh.jugador.length + ' jugador(es)');
+          showBrowserNotif('akuma — ' + total + ' novedad(es)', parts.join(' · '));
+        }
+      }
+      notifSeenIds_ = currentIds;
+    }
+
+    // ── Badge (no vistos según last-seen) ──
     const lastSeenMs = new Date(getNotifLastSeen()).getTime();
     const isUnseen = r => new Date(r.created_at).getTime() > lastSeenMs;
     const alertCount = retiros.filter(isUnseen).length
@@ -3799,48 +3942,78 @@ async function loadNotifications() {
 
     const panel = document.getElementById('notif-panel');
     if (!panel) return;
-    // Solo reconstruir el panel si está abierto: evita reescribir el DOM cada 5s
-    // (con backdrop-filter activo eso causaba el parpadeo opaco→nítido).
+    // Solo reconstruir el panel si está abierto (evita parpadeo cada 5s)
     if (!panel.classList.contains('show')) return;
-    let html = '<div class="notif-header"><span>🔔 NOTIFICACIONES</span><button onclick="toggleNotifPanel()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem">✕</button></div>';
+
+    const item = (cls, icon, kind, id, name, line, meta) =>
+      '<div class="notif-item ' + cls + '" onclick="notifGo(\'' + kind + '\',\'' + (id||'') + '\',\'' + encodeURIComponent(name||'') + '\')">' +
+        '<span class="notif-icon">' + icon + '</span>' +
+        '<div class="notif-body"><strong>' + esc(name) + '</strong>' + (line||'') +
+          '<div class="notif-meta">' + meta + '</div></div>' +
+        '<span class="notif-go">›</span>' +
+      '</div>';
+
+    let html = '<div class="notif-header"><span>🔔 NOTIFICACIONES</span><div style="display:flex;gap:6px;align-items:center">' +
+      '<button class="notif-act" title="Activar/silenciar sonido" onclick="toggleNotifSound(event)">' + (notifSoundEnabled() ? '🔊' : '🔇') + '</button>' +
+      '<button class="notif-act" title="Marcar todo como leído" onclick="markAllNotifRead(event)">✓</button>' +
+      '<button class="notif-act" title="Cerrar" onclick="toggleNotifPanel()">✕</button>' +
+      '</div></div>';
 
     if (retiros.length) {
-      html += '<div class="notif-section"><div class="notif-section-title">⚠ RETIROS PENDIENTES</div>';
-      retiros.forEach(r => {
-        const h = new Date(r.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
-        html += '<div class="notif-item notif-warn"><span class="notif-icon">💸</span><div class="notif-body"><strong>'+esc(r.player_name)+'</strong>$'+fmtNum(r.total_amount)+'<div class="notif-meta">'+esc(r.cajero)+' · '+h+'</div></div></div>';
-      });
+      html += '<div class="notif-section"><div class="notif-section-title urgent">⚠ RETIROS PENDIENTES</div>';
+      retiros.forEach(r => { const h = new Date(r.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+        html += item('notif-warn', '💸', 'retiro', r.id, r.player_name, ' $' + fmtNum(r.total_amount), esc(r.cajero) + ' · ' + h); });
       html += '</div>';
     }
     if (errors.length) {
-      html += '<div class="notif-section"><div class="notif-section-title">🔴 ERRORES HOY</div>';
-      errors.forEach(r => {
-        const h = new Date(r.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
-        html += '<div class="notif-item notif-err"><span class="notif-icon">⚡</span><div class="notif-body"><strong>'+esc(r.player_name)+'</strong>$'+fmtNum(r.amount)+'<div class="notif-meta">'+esc(r.cajero)+' · '+h+'</div></div></div>';
-      });
+      html += '<div class="notif-section"><div class="notif-section-title urgent">🔴 ERRORES HOY</div>';
+      errors.forEach(r => { const h = new Date(r.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+        html += item('notif-err', '⚡', 'error', r.id, r.player_name, ' $' + fmtNum(r.amount), esc(r.cajero) + ' · ' + h); });
       html += '</div>';
     }
     if (charges.length) {
       html += '<div class="notif-section"><div class="notif-section-title">✅ ÚLTIMAS CARGAS</div>';
-      charges.forEach(r => {
-        const h = new Date(r.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
-        html += '<div class="notif-item notif-ok"><span class="notif-icon">💰</span><div class="notif-body"><strong>'+esc(r.player_name)+'</strong>$'+fmtNum(r.amount)+'<div class="notif-meta">'+esc(r.cajero)+' · '+h+'</div></div></div>';
-      });
+      charges.forEach(r => { const h = new Date(r.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+        html += item('notif-ok', '💰', 'carga', r.id, r.player_name, ' $' + fmtNum(r.amount), esc(r.cajero) + ' · ' + h); });
       html += '</div>';
     }
     if (newPlayers.length) {
       html += '<div class="notif-section"><div class="notif-section-title">👤 JUGADORES NUEVOS HOY</div>';
-      newPlayers.forEach(r => {
-        const h = new Date(r.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
-        html += '<div class="notif-item notif-info"><span class="notif-icon">🆕</span><div class="notif-body"><strong>'+esc(r.name)+'</strong><div class="notif-meta">por '+esc(r.created_by||'—')+' · '+h+'</div></div></div>';
-      });
+      newPlayers.forEach(r => { const h = new Date(r.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+        html += item('notif-info', '🆕', 'jugador', r.id, r.name, '', 'por ' + esc(r.created_by||'—') + ' · ' + h); });
       html += '</div>';
     }
     if (!retiros.length && !errors.length && !charges.length && !newPlayers.length) {
-      html += '<div style="color:var(--muted);text-align:center;padding:24px;font-size:.82rem">Sin actividad reciente</div>';
+      html += '<div class="empty-state"><div class="es-icon">🔔</div><div class="es-title">Sin actividad reciente</div><div class="es-sub">Las novedades de las últimas 24h aparecerán acá.</div></div>';
     }
     panel.innerHTML = html;
   } catch(e) { console.error('loadNotifications:', e); }
+}
+
+/* Parpadeo del 🔔 al llegar algo nuevo */
+function pulseNotifBell() {
+  const bell = document.getElementById('notif-bell');
+  if (!bell) return;
+  bell.classList.remove('bell-pulse');
+  void bell.offsetWidth; // reiniciar animación
+  bell.classList.add('bell-pulse');
+  setTimeout(() => bell.classList.remove('bell-pulse'), 2000);
+}
+
+function toggleNotifSound(e) {
+  if (e) e.stopPropagation();
+  const on = notifSoundEnabled();
+  try { localStorage.setItem('casino_notif_sound', on ? 'off' : 'on'); } catch (_) {}
+  if (on === false) playNotifSound(false); // al activar, suena de muestra
+  loadNotifications();
+}
+
+function markAllNotifRead(e) {
+  if (e) e.stopPropagation();
+  setNotifLastSeen(new Date().toISOString());
+  const badge = document.getElementById('notif-badge');
+  if (badge) { badge.textContent = ''; badge.style.display = 'none'; }
+  showToast('Notificaciones marcadas como leídas.', 't-ok');
 }
 
 function toggleNotifPanel() {
@@ -3848,6 +4021,8 @@ function toggleNotifPanel() {
   const panel = document.getElementById('notif-panel');
   if (panel) panel.classList.toggle('show', state.notifPanelOpen_);
   if (state.notifPanelOpen_) {
+    if (audioCtx_ && audioCtx_.state === 'suspended') audioCtx_.resume();
+    ensureNotifPermission();
     setNotifLastSeen(new Date().toISOString()); // marcar todo como visto
     loadNotifications();                          // recalcula el badge → 0
   }
@@ -3892,5 +4067,6 @@ Object.assign(window, {
   toggleThemeDropdown, updateTotal, uploadStaffPhoto, uploadStarImg,
   toggleResetHistory, loadResetHistory,
   showUserPerms, saveUserPerms, resetUserPerms, kickUser,
+  notifGo, toggleNotifSound, markAllNotifRead, apThemeChange,
   copyText, closeModal,
 });

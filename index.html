@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Casino · Sistema de Gestión</title>
+  <title>AKUMA777</title>
+  <link rel="icon" href="https://res.cloudinary.com/dyz0wz4kx/image/upload/v1782198859/ChatGPT_Image_23_jun_2026_04_14_10_a.m._klrtic.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Exo+2:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -52,7 +53,7 @@
       <span class="login-suit">♦</span>
       <span class="login-suit">♣</span>
     </div>
-    <div class="login-logo">CASINO</div>
+    <div class="login-logo">GANA777</div>
     <div class="login-sub">SISTEMA DE GESTIÓN</div>
     <div class="login-divider">
       <div class="login-divider-line"></div>
@@ -83,7 +84,7 @@
 
 <div id="app" style="display:none">
   <div class="topbar">
-    <div class="topbar-logo">♠ CASINO</div>
+    <div class="topbar-logo">♠ GANA777</div>
     <div class="tab-nav" id="tab-nav">
       <button class="tab-btn active" data-page="inicio">INICIO</button>
       <button class="tab-btn" data-page="cargas">CARGAS</button>
@@ -120,7 +121,7 @@
         <span>Cajero: <span id="topbar-name">—</span></span>
       </div>
       <div id="notif-wrap" style="position:relative;display:none">
-        <button onclick="toggleNotifPanel()" style="background:rgba(255,255,255,.06);border:1px solid var(--glass-b);border-radius:8px;padding:6px 10px;color:var(--text);cursor:pointer;position:relative;font-size:.9rem" title="Notificaciones">
+        <button id="notif-bell" onclick="toggleNotifPanel()" style="background:rgba(255,255,255,.06);border:1px solid var(--glass-b);border-radius:8px;padding:6px 10px;color:var(--text);cursor:pointer;position:relative;font-size:.9rem" title="Notificaciones">
           🔔<span id="notif-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;font-size:.55rem;font-weight:700;min-width:15px;height:15px;border-radius:8px;line-height:15px;text-align:center;padding:0 2px"></span>
         </button>
       </div>
@@ -750,7 +751,7 @@
         <div>
           <label class="field" style="display:block;margin-bottom:12px">
             <span style="font-size:.7rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:5px">TEMA DE COLOR</span>
-            <select class="inp-sel" id="ap-theme" style="width:100%" onchange="(function(t){const themes={'':['Dorado','#f0c040'],emerald:['Esmeralda','#30d980'],crimson:['Carmesí','#e04060'],sapphire:['Zafiro','#4090ff'],violet:['Violeta','#a060ff'],rose:['Rosa','#ff70b0'],arctic:['Ártico','#80e0ff']};const[n,c]=themes[t]||themes[''];applyTheme(t,n,c,null)})(this.value)">
+            <select class="inp-sel" id="ap-theme" style="width:100%" onchange="apThemeChange(this.value)">
               <option value="">♠ Dorado (default)</option>
               <option value="emerald">♣ Esmeralda</option>
               <option value="crimson">♥ Carmesí</option>
