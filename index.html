@@ -88,6 +88,7 @@
       <button class="tab-btn active" data-page="inicio">INICIO</button>
       <button class="tab-btn" data-page="cargas">CARGAS</button>
       <button class="tab-btn" data-page="historial">HISTORIAL</button>
+      <button class="tab-btn role-control" data-page="control" style="display:none">CONTROL <span id="control-tab-badge" class="tab-badge" style="display:none">0</span></button>
       <button class="tab-btn" data-page="retiros">RETIROS</button>
       <button class="tab-btn" data-page="jugadores">JUGADORES</button>
       <button class="tab-btn" data-page="bonos">BONOS</button>
@@ -494,6 +495,55 @@
       <div class="pagination">
         <div class="pagination-info" id="pag-info">—</div>
         <div class="pag-btns" id="pag-btns"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: CONTROL DE CARGAS -->
+  <div class="page" id="page-control">
+    <div class="card">
+      <div class="card-title-row">
+        <div class="card-title">✅ CONTROL DE CARGAS <span id="control-pending-count" class="pending-badge">0</span></div>
+      </div>
+      <div class="control-filters">
+        <div class="form-col">
+          <label>PERÍODO</label>
+          <select class="inp-sel" id="ctrl-periodo" onchange="ctrlPeriodChange()">
+            <option value="turno">Turno actual</option>
+            <option value="hoy">Hoy</option>
+            <option value="custom">Personalizado</option>
+          </select>
+        </div>
+        <div class="form-col">
+          <label>ESTADO</label>
+          <select class="inp-sel" id="ctrl-estado" onchange="loadControl()">
+            <option value="pending">Pendientes</option>
+            <option value="done">Controladas</option>
+            <option value="all">Todas</option>
+          </select>
+        </div>
+        <div class="form-col">
+          <label>CAJERO</label>
+          <select class="inp-sel" id="ctrl-cajero" onchange="loadControl()"><option value="">Todos</option></select>
+        </div>
+        <div class="form-col ctrl-date-col" style="display:none">
+          <label>DESDE</label>
+          <input type="date" class="inp" id="ctrl-desde" onchange="loadControl()">
+        </div>
+        <div class="form-col ctrl-date-col" style="display:none">
+          <label>HASTA</label>
+          <input type="date" class="inp" id="ctrl-hasta" onchange="loadControl()">
+        </div>
+      </div>
+      <div class="control-summary" id="control-summary"></div>
+      <div class="table-wrap">
+        <table class="cajero-table" id="control-table">
+          <thead><tr>
+            <th>ID PÁGINA</th><th>JUGADOR</th><th>MONTO</th><th>BONO</th>
+            <th>CAJERO</th><th>FECHA</th><th>HORA</th><th>CONTROL</th>
+          </tr></thead>
+          <tbody id="control-tbody"></tbody>
+        </table>
       </div>
     </div>
   </div>

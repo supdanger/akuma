@@ -12,7 +12,7 @@ import {
 import { fmtNum, esc, cap, durStr } from './utils/formatters.js';
 import {
   showToast, showLoad, showModal, showConfirm, closeModal,
-  copyToClipboard, copyTextFallback, copyText,
+  copyToClipboard, copyTextFallback, copyText, setSilentLoad,
 } from './utils/dom.js';
 import {
   loadPermConfig, canAccess, myRoleLevel, canManageRole, roleCls,
@@ -922,7 +922,7 @@ let isRefreshing_        = false;
 const POLL_INTERVAL      = 10_000; // 10 segundos
 
 // Páginas que NO tienen sentido refrescar automáticamente
-const NO_AUTO_REFRESH = new Set(['admin', 'bonos']);
+const NO_AUTO_REFRESH = new Set(['admin', 'bonos', 'control']);
 
 async function autoRefreshPage() {
   if (!currentActivePage_) return;
@@ -931,11 +931,13 @@ async function autoRefreshPage() {
   if (document.hidden) return; // pestaña no visible, no gastar requests
 
   isRefreshing_ = true;
+  setSilentLoad(true); // refresco silencioso: sin overlay de carga
   try {
     await refreshPage(currentActivePage_);
   } catch (e) {
     console.warn('autoRefresh error:', e);
   } finally {
+    setSilentLoad(false);
     isRefreshing_ = false;
   }
 }
@@ -945,6 +947,7 @@ async function refreshPage(p) {
   if (p === 'inicio')    { await populateInicioTurnos(); applyInicioFilters(); loadReporte(); }
   if (p === 'cargas')    { await loadCounters(); await loadCurrentBankAccount(); }
   if (p === 'historial') { await loadHistorial(false); }
+  if (p === 'control')   { await loadControl(); }
   if (p === 'retiros')   { await loadRetiros(); }
   if (p === 'jugadores') {
     await Promise.allSettled([loadJugadorStats(), loadTopPlayers(), loadJugadores()]);
@@ -1297,17 +1300,23 @@ function setupTabs() {
   document.querySelectorAll('.role-sa').forEach(el => el.style.display = saAllowed ? '' : 'none');
   const supAllowed = ['superadmin','supervisor'].includes(state.currentUser.role);
   document.querySelectorAll('.role-supervisor').forEach(el => el.style.display = supAllowed ? '' : 'none');
+  // Pestaña Control: supervisor, admin y superadmin
+  const controlAllowed = ['superadmin','admin','supervisor'].includes(state.currentUser.role);
+  document.querySelectorAll('.role-control').forEach(el => el.style.display = controlAllowed ? '' : 'none');
 
   // Show/hide tabs based on permissions
   document.querySelectorAll('#tab-nav .tab-btn').forEach(btn => {
     const page = btn.dataset.page;
     if (page === 'admin') {
       btn.style.display = isAdmin ? '' : 'none';
+    } else if (page === 'control') {
+      btn.style.display = controlAllowed ? '' : 'none';
     } else {
       btn.style.display = canAccess(page) ? '' : 'none';
     }
     btn.onclick = () => showPage(btn.dataset.page);
   });
+  if (controlAllowed) refreshControlBadge();
 }
 
 function showPage(p) {
@@ -1331,6 +1340,11 @@ async function initPage(p) {
     await loadCurrentBankAccount();
   }
   if (p === 'historial') { populateBonusFilter(); await loadHistorial(); }
+  if (p === 'control') {
+    const per = document.getElementById('ctrl-periodo');
+    document.querySelectorAll('.ctrl-date-col').forEach(el => el.style.display = (per?.value === 'custom') ? '' : 'none');
+    await loadControl();
+  }
   if (p === 'retiros')   await loadRetiros();
   if (p === 'jugadores') {
     try { await loadJugadorStats(); } catch(e) { console.error('loadJugadorStats', e); }
@@ -1974,6 +1988,16 @@ async function resetCounters() {
         }
       } catch (hErr) { console.warn('No se pudo registrar historial de reinicio:', hErr); }
 
+      // Cierre de turno: dar por controladas las cargas pendientes del turno que cierra
+      try {
+        await db.from('charges')
+          .update({ verified: true, verified_by: 'cierre de turno', verified_at: newResetAt })
+          .eq('status', 'ok')
+          .lt('created_at', newResetAt)
+          .or('verified.is.null,verified.eq.false');
+        await refreshControlBadge();
+      } catch (vErr) { console.warn('No se pudieron cerrar cargas del turno:', vErr); }
+
       await loadCounters();
       if (document.getElementById('reset-history-panel')?.style.display === 'block') {
         await loadResetHistory();
@@ -2377,6 +2401,196 @@ async function deleteCharge(id, btn) {
     showToast('Registro eliminado permanentemente.', 't-err');
     showLoad(false);
   });
+}
+
+/* ══════════════════════════════════════════════════════════
+   CONTROL DE CARGAS
+   ══════════════════════════════════════════════════════════ */
+function canControl() {
+  return ['superadmin', 'admin', 'supervisor'].includes(state.currentUser?.role);
+}
+
+async function populateControlCajeros() {
+  const sel = document.getElementById('ctrl-cajero');
+  if (!sel) return;
+  try {
+    const { data: staff } = await db.from('staff').select('name').eq('active', true).order('name');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Todos</option>' +
+      (staff || []).map(s => `<option value="${esc(s.name)}" ${cur === s.name ? 'selected' : ''}>${cap(esc(s.name))}</option>`).join('');
+  } catch (_) {}
+}
+
+function ctrlPeriodChange() {
+  const per = document.getElementById('ctrl-periodo')?.value;
+  document.querySelectorAll('.ctrl-date-col').forEach(el => el.style.display = per === 'custom' ? '' : 'none');
+  loadControl();
+}
+
+async function loadControl() {
+  if (!canControl()) return;
+  const tbody = document.getElementById('control-tbody');
+  if (!tbody) return;
+
+  const periodo = document.getElementById('ctrl-periodo')?.value || 'turno';
+  const estado = document.getElementById('ctrl-estado')?.value || 'pending';
+  const cajero = document.getElementById('ctrl-cajero')?.value || '';
+  const desde  = document.getElementById('ctrl-desde')?.value;
+  const hasta  = document.getElementById('ctrl-hasta')?.value;
+
+  showLoad(true);
+  try {
+    await populateControlCajeros();
+
+    // Determinar el rango según el período
+    let fromISO = null, toISO = null;
+    if (periodo === 'turno') {
+      // Desde el último reinicio de contadores de bonos (= inicio del turno)
+      const { data: cr } = await db.from('bonus_counters').select('reset_at').eq('id', 1).maybeSingle();
+      fromISO = cr?.reset_at || new Date(Date.now() - 86400000).toISOString();
+    } else if (periodo === 'hoy') {
+      const t = new Date(); t.setHours(0, 0, 0, 0);
+      fromISO = t.toISOString();
+    } else { // custom
+      if (desde) fromISO = desde + 'T00:00:00';
+      if (hasta) toISO = hasta + 'T23:59:59';
+    }
+
+    let qb = db.from('charges')
+      .select('id,player_id,player_name,amount,bonus_amount,cajero,created_at,verified,verified_by,verified_at,status')
+      .eq('status', 'ok')
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (estado === 'pending') qb = qb.or('verified.is.null,verified.eq.false');
+    else if (estado === 'done') qb = qb.eq('verified', true);
+    if (cajero) qb = qb.eq('cajero', cajero);
+    if (fromISO) qb = qb.gte('created_at', fromISO);
+    if (toISO)   qb = qb.lte('created_at', toISO);
+
+    const { data, error } = await qb;
+    if (error) throw error;
+    const rows = data || [];
+
+    // Cruzar casino_id de los jugadores
+    const pids = [...new Set(rows.map(r => r.player_id).filter(Boolean))];
+    const cidMap = {};
+    if (pids.length) {
+      const { data: pl } = await db.from('players').select('id,casino_id').in('id', pids);
+      (pl || []).forEach(p => { cidMap[p.id] = p.casino_id || ''; });
+    }
+
+    // Resumen: cantidad + suma de montos
+    const totalMonto = rows.reduce((a, r) => a + Number(r.amount || 0), 0);
+    const totalBonos = rows.reduce((a, r) => a + Number(r.bonus_amount || 0), 0);
+    const summary = document.getElementById('control-summary');
+    if (summary) {
+      summary.innerHTML =
+        `<div class="ctrl-sum-item"><span>Cargas</span><strong>${rows.length}</strong></div>` +
+        `<div class="ctrl-sum-item"><span>Monto total</span><strong style="color:var(--green)">$${fmtNum(totalMonto)}</strong></div>` +
+        `<div class="ctrl-sum-item"><span>Bonos</span><strong style="color:var(--accent)">$${fmtNum(totalBonos)}</strong></div>`;
+    }
+
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="es-icon">✅</div><div class="es-title">Nada para controlar</div><div class="es-sub">No hay cargas con este filtro.</div></div></td></tr>`;
+      await refreshControlBadge();
+      return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+      const dt = new Date(r.created_at);
+      const fecha = dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const hora  = dt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      const cid = cidMap[r.player_id];
+      const idCell = cid
+        ? `<span style="font-family:'Rajdhani',sans-serif;letter-spacing:.5px;color:var(--accent);font-weight:600">${esc(cid)}</span>`
+        : `<button class="btn-tiny" style="color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,transparent)" onclick="controlAssignId('${r.player_id || ''}','${esc(r.player_name)}')">⚠ Sin ID</button>`;
+      const done = r.verified === true;
+      const ctrlCell = done
+        ? `<label class="ctrl-check"><input type="checkbox" checked onchange="verifyCharge('${r.id}',this.checked)"><span class="ctrl-done" title="${esc(r.verified_by || '')} · ${r.verified_at ? new Date(r.verified_at).toLocaleString('es-AR') : ''}">✓ ${esc(r.verified_by || 'OK')}</span></label>`
+        : `<label class="ctrl-check"><input type="checkbox" onchange="verifyCharge('${r.id}',this.checked)"><span style="color:var(--muted);font-size:.74rem">marcar</span></label>`;
+      return `<tr class="${done ? 'ctrl-row-done' : ''}" id="ctrlrow-${r.id}">
+        <td>${idCell}</td>
+        <td style="font-weight:600">${esc(r.player_name)}</td>
+        <td style="color:var(--green)">$${fmtNum(r.amount)}</td>
+        <td>${r.bonus_amount ? `<span class="badge badge-bonus">$${fmtNum(r.bonus_amount)}</span>` : '—'}</td>
+        <td style="color:var(--accent);font-size:.78rem">${esc(r.cajero)}</td>
+        <td style="color:var(--muted);font-size:.78rem">${fecha}</td>
+        <td style="color:var(--muted);font-size:.78rem">${hora}</td>
+        <td>${ctrlCell}</td>
+      </tr>`;
+    }).join('');
+
+    await refreshControlBadge();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--red)">Error: ${esc(e?.message || String(e))}<br><small style="color:var(--muted)">¿Corriste CONTROL_CARGAS.sql en Supabase?</small></td></tr>`;
+  } finally { showLoad(false); }
+}
+
+async function verifyCharge(id, checked) {
+  if (!canControl()) { showToast('Sin permisos.', 't-err'); return; }
+  const upd = checked
+    ? { verified: true, verified_by: state.currentUser.name, verified_at: new Date().toISOString() }
+    : { verified: false, verified_by: null, verified_at: null };
+  const { error } = await db.from('charges').update(upd).eq('id', id);
+  if (error) { showToast('No se pudo guardar: ' + (error.message || error), 't-err'); return; }
+
+  const estado = document.getElementById('ctrl-estado')?.value || 'pending';
+  const row = document.getElementById('ctrlrow-' + id);
+  // Si estamos viendo "pendientes" y se marcó, la fila sale de la lista
+  if (row && ((estado === 'pending' && checked) || (estado === 'done' && !checked))) {
+    row.style.transition = 'opacity .3s';
+    row.style.opacity = '0';
+    setTimeout(() => { row.remove(); if (!document.querySelector('#control-tbody .cajero-name-cell, #control-tbody tr[id]')) loadControl(); }, 300);
+  } else if (row) {
+    row.classList.toggle('ctrl-row-done', checked);
+  }
+  await refreshControlBadge();
+}
+
+async function controlAssignId(playerId, playerName) {
+  if (!playerId) { showToast('Esta carga no tiene jugador vinculado.', 't-err'); return; }
+  if (!['superadmin', 'admin'].includes(state.currentUser?.role)) { showToast('Solo admin/superadmin cargan el ID.', 't-err'); return; }
+  showModal({
+    title: '🆔 ID de ' + cap(playerName),
+    body: '<div class="form-col"><label>ID DE LA PLATAFORMA</label>' +
+      '<input id="ctrl-cid-input" class="inp" inputmode="numeric" maxlength="20" placeholder="ID del casino" onkeydown="if(event.key===\'Enter\')controlSaveId(\'' + playerId + '\')"></div>',
+    actions: '<button class="btn-modal" data-modal-cancel>Cancelar</button>' +
+      '<button class="btn-primary" onclick="controlSaveId(\'' + playerId + '\')">Guardar</button>',
+  });
+  setTimeout(() => document.getElementById('ctrl-cid-input')?.focus(), 100);
+}
+
+async function controlSaveId(playerId) {
+  const val = (document.getElementById('ctrl-cid-input')?.value || '').trim();
+  if (!val) { showToast('Escribí un ID.', 't-err'); return; }
+  showLoad(true);
+  try {
+    const { data: dup } = await db.from('players').select('id,name').eq('casino_id', val).neq('id', playerId).limit(1);
+    if (dup && dup.length) { showLoad(false); showToast('⚠ Ese ID ya es de "' + cap(dup[0].name) + '".', 't-err'); return; }
+    const { error } = await db.from('players').update({ casino_id: val }).eq('id', playerId);
+    if (error) throw error;
+    closeModal();
+    showToast('✔ ID asignado.', 't-ok');
+    loadControl();
+  } catch (e) { showToast('No se pudo guardar: ' + (e?.message || e), 't-err'); }
+  finally { showLoad(false); }
+}
+
+// Contador de pendientes (badge en la pestaña)
+async function refreshControlBadge() {
+  const tabBadge = document.getElementById('control-tab-badge');
+  const pageBadge = document.getElementById('control-pending-count');
+  if (!canControl()) return;
+  try {
+    const { count } = await db.from('charges')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'ok')
+      .or('verified.is.null,verified.eq.false');
+    const n = count ?? 0;
+    if (tabBadge) { tabBadge.textContent = n; tabBadge.style.display = n ? '' : 'none'; }
+    if (pageBadge) pageBadge.textContent = n;
+  } catch (_) {}
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -3886,6 +4100,8 @@ function refreshTabVisibility() {
     if (!page) return;
     if (page === 'admin') {
       btn.style.display = isAdmin ? '' : 'none';
+    } else if (page === 'control') {
+      btn.style.display = ['superadmin','admin','supervisor'].includes(state.currentUser?.role) ? '' : 'none';
     } else if (page === 'sa-cargas') {
       btn.style.display = saAllowed ? '' : 'none';
     } else {
@@ -4199,5 +4415,6 @@ Object.assign(window, {
   showUserPerms, saveUserPerms, resetUserPerms, kickUser,
   notifGo, toggleNotifSound, markAllNotifRead, apThemeChange,
   toggleAssignIds, saveCasinoId,
+  loadControl, verifyCharge, controlAssignId, controlSaveId, ctrlPeriodChange,
   copyText, closeModal,
 });

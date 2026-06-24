@@ -1087,3 +1087,34 @@ button:active{transform:scale(.97)}
   .assign-input{justify-content:space-between}
   .assign-input .inp{flex:1;width:auto}
 }
+
+/* ════════════════════════════════════════════════════════════
+   CONTROL DE CARGAS
+   ════════════════════════════════════════════════════════════ */
+.tab-badge{
+  background:var(--red);color:#fff;font-size:.6rem;font-weight:700;
+  border-radius:8px;padding:0 5px;min-width:16px;display:inline-block;
+  text-align:center;margin-left:3px;vertical-align:middle;
+}
+.control-filters{
+  display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;
+}
+.control-filters .form-col{min-width:140px;flex:1}
+.control-summary{
+  display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;
+}
+.ctrl-sum-item{
+  flex:1;min-width:120px;background:var(--surface-1);
+  border:1px solid var(--glass-b);border-radius:10px;padding:10px 14px;
+  display:flex;flex-direction:column;gap:2px;
+}
+.ctrl-sum-item span{font-size:.66rem;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
+.ctrl-sum-item strong{font-size:1.25rem;font-family:'Rajdhani',sans-serif}
+.ctrl-check{display:inline-flex;align-items:center;gap:7px;cursor:pointer}
+.ctrl-check input{width:18px;height:18px;accent-color:var(--green);cursor:pointer}
+.ctrl-done{color:var(--green);font-size:.74rem;font-weight:600;white-space:nowrap}
+.ctrl-row-done{opacity:.55}
+.ctrl-row-done:hover{opacity:.85}
+@media (max-width:768px){
+  .control-filters .form-col{min-width:calc(50% - 6px)}
+}
