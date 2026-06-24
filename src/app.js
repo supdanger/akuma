@@ -1336,6 +1336,7 @@ async function initPage(p) {
     try { await loadJugadorStats(); } catch(e) { console.error('loadJugadorStats', e); }
     try { await loadTopPlayers();  } catch(e) { console.error('loadTopPlayers', e);  }
     try { await loadJugadores();   } catch(e) { console.error('loadJugadores', e);   }
+    try { refreshAssignIdsCard();  } catch(e) { console.error('refreshAssignIdsCard', e); }
   }
   if (p === 'bonos')     await loadBonos();
   if (p === 'cuentas')   await loadCuentas();
@@ -2085,6 +2086,19 @@ async function loadHistorial(resetPage) {
     state.hAllData    = data || [];
     state.hTotalCount = count || 0;
 
+    // Cruzar casino_id de los jugadores de esta página (para mostrar "ID: x")
+    try {
+      const pids = [...new Set(state.hAllData.map(r => r.player_id).filter(Boolean))];
+      const names = [...new Set(state.hAllData.map(r => (r.player_name||'').toLowerCase()).filter(Boolean))];
+      const map = {}, nameMap = {};
+      if (pids.length) {
+        const { data: pl } = await db.from('players').select('id,name,casino_id').in('id', pids);
+        (pl||[]).forEach(p => { if (p.casino_id) { map[p.id] = p.casino_id; nameMap[(p.name||'').toLowerCase()] = p.casino_id; } });
+      }
+      state.histCasinoMap_ = map;
+      state.histCasinoNameMap_ = nameMap;
+    } catch (_) { state.histCasinoMap_ = {}; state.histCasinoNameMap_ = {}; }
+
     // Hide SA edits from non-SA: show original values
     if (!isSA) {
       state.hAllData = state.hAllData.map(r => {
@@ -2141,7 +2155,7 @@ function renderHistorialPage() {
 
     return `<tr class="${r.status==='error'?'err-row':''}" id="hrow-${r.id}">
       <td style="color:var(--muted);font-size:.7rem">${globalIdx}</td>
-      <td style="font-weight:600">${esc(r.player_name)}</td>
+      <td style="font-weight:600">${esc(r.player_name)}${(() => { const cid = (state.histCasinoMap_?.[r.player_id]) || (state.histCasinoNameMap_?.[(r.player_name||'').toLowerCase()]); return cid ? `<div style="font-size:.66rem;color:var(--muted);font-weight:400;white-space:nowrap">ID: ${esc(cid)}</div>` : ''; })()}</td>
       <td style="color:var(--green)">$${fmtNum(r.amount)}</td>
       <td id="bcell-${r.id}">${bonusCell}</td>
       <td style="color:var(--accent);font-weight:600" id="tcell-${r.id}">$${fmtNum(r.total)}</td>
@@ -2690,7 +2704,7 @@ async function loadJugadores() {
   showLoad(true);
   try {
     let qb = db.from('players').select('*').order('name').limit(200);
-    if (q) qb = qb.or(`name.ilike.%${q}%,phone.ilike.%${q}%,principal.ilike.%${q}%`);
+    if (q) qb = qb.or(`name.ilike.%${q}%,phone.ilike.%${q}%,principal.ilike.%${q}%,casino_id.ilike.%${q}%`);
     if (s !== '') qb = qb.eq('stars', parseInt(s));
     const { data } = await qb;
     const grid = document.getElementById('players-grid');
@@ -2698,6 +2712,7 @@ async function loadJugadores() {
     grid.innerHTML = data.map(function(p) {
       var ph  = p.phone     ? '<span style="font-size:.65rem;color:var(--blue)">📱 ' + esc(p.phone) + '</span>' : '';
       var pr  = p.principal ? '<span style="font-size:.65rem;color:var(--purple)">🏦 ' + esc(p.principal) + '</span>' : '';
+      var cid = p.casino_id ? '<span style="font-size:.65rem;color:var(--accent)">🆔 ' + esc(p.casino_id) + '</span>' : '';
       var av  = getStarDisplayInline(p.stars, 24);
       var st  = getStarStars(p.stars);
       var lbl = getStarLabel(p.stars);
@@ -2706,13 +2721,111 @@ async function loadJugadores() {
           '<div class="player-avatar" style="width:24px;height:24px;min-width:24px;overflow:hidden;border-radius:50%;flex-shrink:0">' + av + '</div>',
           '<div class="player-card-main">',
             '<div class="player-name-card">' + esc(p.name) + '</div>',
-            '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">' + st + ' <span style="font-size:.65rem;color:var(--muted)">' + lbl + '</span>' + ph + pr + '</div>',
+            '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">' + st + ' <span style="font-size:.65rem;color:var(--muted)">' + lbl + '</span>' + cid + ph + pr + '</div>',
           '</div>',
         '</div>'
       ].join('');
     }).join('');
   } finally { showLoad(false); }
 }
+
+/* ── ASIGNACIÓN DE IDs DEL CASINO (admin/superadmin) ─────── */
+function canEditCasinoId() {
+  return ['superadmin', 'admin'].includes(state.currentUser?.role);
+}
+
+// Mostrar/ocultar la tarjeta según rol y refrescar el contador de pendientes
+async function refreshAssignIdsCard() {
+  const card = document.getElementById('assign-ids-card');
+  if (!card) return;
+  if (!canEditCasinoId()) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  try {
+    const { count } = await db.from('players')
+      .select('*', { count: 'exact', head: true })
+      .or('casino_id.is.null,casino_id.eq.');
+    const badge = document.getElementById('pending-ids-count');
+    if (badge) badge.textContent = count ?? 0;
+  } catch (e) { console.warn('refreshAssignIdsCard:', e); }
+}
+
+function toggleAssignIds() {
+  const body = document.getElementById('assign-ids-body');
+  const btn = document.getElementById('assign-ids-toggle');
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  if (open) { body.style.display = 'none'; if (btn) btn.textContent = 'Mostrar'; return; }
+  body.style.display = '';
+  if (btn) btn.textContent = 'Ocultar';
+  loadPendingIds();
+}
+
+async function loadPendingIds() {
+  const list = document.getElementById('assign-ids-list');
+  if (!list || !canEditCasinoId()) return;
+  list.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:8px 0">Cargando...</div>';
+  try {
+    const { data } = await db.from('players')
+      .select('id,name,stars,phone')
+      .or('casino_id.is.null,casino_id.eq.')
+      .order('name')
+      .limit(500);
+    if (!data?.length) {
+      list.innerHTML = '<div class="empty-state"><div class="es-icon">✅</div><div class="es-title">Todos tienen ID</div><div class="es-sub">No quedan jugadores sin ID del casino.</div></div>';
+      return;
+    }
+    list.innerHTML = data.map(p =>
+      '<div class="assign-row" id="assign-' + p.id + '">' +
+        '<div class="assign-info">' + getStarStars(p.stars) +
+          '<span class="assign-name">' + esc(p.name) + '</span>' +
+          (p.phone ? '<span style="font-size:.66rem;color:var(--blue)">📱 ' + esc(p.phone) + '</span>' : '') +
+        '</div>' +
+        '<div class="assign-input">' +
+          '<input class="inp" inputmode="numeric" maxlength="20" placeholder="ID del casino" ' +
+            'id="cid-' + p.id + '" onkeydown="if(event.key===\'Enter\')saveCasinoId(\'' + p.id + '\')">' +
+          '<button class="btn-tiny" style="background:color-mix(in srgb,var(--green) 18%,transparent);color:var(--green);border-color:color-mix(in srgb,var(--green) 30%,transparent)" onclick="saveCasinoId(\'' + p.id + '\')">✓ Guardar</button>' +
+        '</div>' +
+      '</div>'
+    ).join('');
+  } catch (e) {
+    list.innerHTML = '<div style="color:var(--red);padding:8px 0">Error al cargar: ' + esc(e?.message || String(e)) + '</div>';
+  }
+}
+
+async function saveCasinoId(playerId) {
+  if (!canEditCasinoId()) { showToast('Sin permisos.', 't-err'); return; }
+  const inp = document.getElementById('cid-' + playerId);
+  const val = (inp?.value || '').trim();
+  if (!val) { showToast('Escribí un ID.', 't-err'); inp?.focus(); return; }
+
+  showLoad(true);
+  try {
+    // Chequear que no esté repetido en otro jugador
+    const { data: dup } = await db.from('players')
+      .select('id,name').eq('casino_id', val).neq('id', playerId).limit(1);
+    if (dup && dup.length) {
+      showLoad(false);
+      showToast('⚠ Ese ID ya es de "' + cap(dup[0].name) + '". No se guardó.', 't-err');
+      return;
+    }
+    const { error } = await db.from('players').update({ casino_id: val }).eq('id', playerId);
+    if (error) throw error;
+    // Sacar la fila de la lista de pendientes
+    const row = document.getElementById('assign-' + playerId);
+    if (row) row.remove();
+    await refreshAssignIdsCard();
+    // Si ya no quedan, mostrar estado vacío
+    const list = document.getElementById('assign-ids-list');
+    if (list && !list.querySelector('.assign-row')) {
+      list.innerHTML = '<div class="empty-state"><div class="es-icon">✅</div><div class="es-title">Todos tienen ID</div><div class="es-sub">No quedan jugadores sin ID del casino.</div></div>';
+    }
+    showToast('✔ ID ' + val + ' asignado.', 't-ok');
+  } catch (e) {
+    showToast('No se pudo guardar: ' + (e?.message || e), 't-err');
+    console.error(e);
+  } finally { showLoad(false); }
+}
+
 
 async function openPlayerProfile(pidOrEl) {
   const pid = (typeof pidOrEl === "string") ? pidOrEl : pidOrEl?.dataset?.pid;
@@ -2752,7 +2865,8 @@ async function openPlayerProfile(pidOrEl) {
           <div class="profile-avatar">${getStarDisplay(p.stars)}</div>
           <div class="profile-info">
             <div class="profile-name">${esc(p.name)}</div>
-            <div style="font-size:.72rem;color:var(--muted);margin-top:2px">ID: ${p.id}</div>
+            <div style="font-size:.7rem;color:var(--muted);margin-top:2px">ID interno: ${p.id}</div>
+            ${p.casino_id ? `<div style="font-size:.85rem;color:var(--accent);margin-top:4px;display:flex;align-items:center;gap:6px;font-weight:600">🆔 ID Casino: <span style="font-family:'Rajdhani',sans-serif;letter-spacing:.5px">${esc(p.casino_id)}</span> <button class="btn-copy" onclick="copyText('${esc(p.casino_id)}')">📋</button></div>` : `<div style="font-size:.74rem;color:var(--muted);margin-top:4px">🆔 Sin ID del casino${canEditCasinoId() ? ' — cargalo abajo' : ''}</div>`}
             ${p.phone ? `<div style="font-size:.82rem;color:var(--blue);margin-top:4px;display:flex;align-items:center;gap:6px">📱 ${esc(p.phone)} <button class="btn-copy" onclick="copyText('${esc(p.phone)}')">📋</button></div>` : ''}
             ${p.principal ? `<div style="font-size:.82rem;color:var(--purple);margin-top:3px">🏦 Principal: <strong>${esc(p.principal)}</strong></div>` : ''}
             <div class="profile-since">Desde: ${since}</div>
@@ -2761,6 +2875,8 @@ async function openPlayerProfile(pidOrEl) {
         <div class="profile-note-label">CALIFICACIÓN</div>
         <div class="stars-selector" id="stars-sel-${pid}">${starsHtml}</div>
         <div style="font-size:.82rem;color:var(--muted);margin-bottom:12px" id="star-label-${pid}">${getStarLabel(p.stars)}</div>
+        ${canEditCasinoId() ? `<div style="margin-bottom:14px"><div class="profile-note-label" style="margin-bottom:6px">🆔 ID DEL CASINO</div>
+          <input class="inp" id="player-casino-${pid}" inputmode="numeric" maxlength="20" placeholder="ID de la plataforma..." value="${esc(p.casino_id||'')}"></div>` : ''}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
           <div><div class="profile-note-label" style="margin-top:14px;margin-bottom:6px">TELÉFONO</div>
           <input class="inp" id="player-phone-${pid}" placeholder="Número de teléfono..." value="${esc(p.phone||'')}"></div>
@@ -2799,6 +2915,19 @@ async function savePlayerStars(pid) {
   const principal = document.getElementById('player-principal-'+pid)?.value.trim() || '';
   const upd   = { star_note: note, phone, principal };
   if (stars !== null) upd.stars = stars;
+
+  // ID del casino (solo admin/superadmin pueden editarlo)
+  const cidEl = document.getElementById('player-casino-'+pid);
+  if (cidEl && canEditCasinoId()) {
+    const cid = cidEl.value.trim();
+    if (cid) {
+      // Chequear duplicado en otro jugador
+      const { data: dup } = await db.from('players').select('id,name').eq('casino_id', cid).neq('id', pid).limit(1);
+      if (dup && dup.length) { showToast('⚠ Ese ID ya es de "' + cap(dup[0].name) + '". No se guardó.', 't-err'); return; }
+    }
+    upd.casino_id = cid || null;
+  }
+
   showLoad(true);
   const { error } = await db.from('players').update(upd).eq('id', pid);
   showLoad(false);
@@ -2806,6 +2935,7 @@ async function savePlayerStars(pid) {
   closeModal();
   showToast('Perfil guardado.', 't-ok');
   await loadJugadores();
+  try { refreshAssignIdsCard(); } catch(_) {}
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -4068,5 +4198,6 @@ Object.assign(window, {
   toggleResetHistory, loadResetHistory,
   showUserPerms, saveUserPerms, resetUserPerms, kickUser,
   notifGo, toggleNotifSound, markAllNotifRead, apThemeChange,
+  toggleAssignIds, saveCasinoId,
   copyText, closeModal,
 });

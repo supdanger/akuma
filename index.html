@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>AKUMA777</title>
-  <link rel="icon" href="https://res.cloudinary.com/dyz0wz4kx/image/upload/v1782198859/ChatGPT_Image_23_jun_2026_04_14_10_a.m._klrtic.png" type="image/png">
+  <title>Casino · Sistema de Gestión</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Exo+2:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -53,7 +52,7 @@
       <span class="login-suit">♦</span>
       <span class="login-suit">♣</span>
     </div>
-    <div class="login-logo">GANA777</div>
+    <div class="login-logo">CASINO</div>
     <div class="login-sub">SISTEMA DE GESTIÓN</div>
     <div class="login-divider">
       <div class="login-divider-line"></div>
@@ -84,7 +83,7 @@
 
 <div id="app" style="display:none">
   <div class="topbar">
-    <div class="topbar-logo">♠ GANA777</div>
+    <div class="topbar-logo">♠ CASINO</div>
     <div class="tab-nav" id="tab-nav">
       <button class="tab-btn active" data-page="inicio">INICIO</button>
       <button class="tab-btn" data-page="cargas">CARGAS</button>
@@ -590,6 +589,18 @@
         <div class="form-col"><label>PRINCIPAL</label><input class="inp" id="nj-principal" placeholder="Nombre o número de principal" autocomplete="off"></div>
       </div>
       <button class="btn-primary" onclick="createPlayer()">+ AGREGAR JUGADOR</button>
+    </div>
+
+    <!-- ASIGNAR IDs DEL CASINO (solo admin/superadmin) -->
+    <div class="card" id="assign-ids-card" style="display:none">
+      <div class="card-title-row">
+        <div class="card-title">🆔 ASIGNAR IDs DEL CASINO <span id="pending-ids-count" class="pending-badge">0</span></div>
+        <button class="btn-tiny" id="assign-ids-toggle" onclick="toggleAssignIds()">Mostrar</button>
+      </div>
+      <div id="assign-ids-body" style="display:none">
+        <div style="font-size:.78rem;color:var(--muted);margin-bottom:10px">Jugadores sin ID cargado. Escribí el ID de la plataforma y guardá; al guardarlo sale de la lista.</div>
+        <div id="assign-ids-list"></div>
+      </div>
     </div>
 
     <!-- PERFILES -->

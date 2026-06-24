@@ -1064,3 +1064,26 @@ button:active{transform:scale(.97)}
 .notif-ok{border-left:3px solid var(--green)}
 .notif-info{border-left:3px solid var(--blue)}
 .notif-section-title.urgent{color:var(--red)}
+
+/* ════════════════════════════════════════════════════════════
+   ASIGNACIÓN DE IDs DEL CASINO
+   ════════════════════════════════════════════════════════════ */
+.pending-badge{
+  background:color-mix(in srgb, var(--accent) 18%, transparent);
+  color:var(--accent);border-radius:10px;padding:1px 9px;
+  font-size:.7rem;font-weight:700;margin-left:6px;
+}
+.assign-row{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 12px;border-radius:10px;margin-bottom:7px;flex-wrap:wrap;
+  background:var(--surface-1);border:1px solid var(--glass-b);
+}
+.assign-info{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.assign-name{font-weight:600;font-size:.9rem}
+.assign-input{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.assign-input .inp{width:150px;font-family:'Rajdhani',sans-serif;letter-spacing:.5px}
+@media (max-width:600px){
+  .assign-row{flex-direction:column;align-items:stretch}
+  .assign-input{justify-content:space-between}
+  .assign-input .inp{flex:1;width:auto}
+}
