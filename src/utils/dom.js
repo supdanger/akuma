@@ -19,7 +19,13 @@ export function showToast(msg, type = '', duration = 2800) {
   }, duration);
 }
 
+let silentLoad = false;
+// Durante el refresco automático activamos esto para que el overlay
+// de "cargando" no aparezca (evita el parpadeo cada ciclo).
+export function setSilentLoad(v) { silentLoad = !!v; }
+
 export function showLoad(v) {
+  if (silentLoad) return; // refresco silencioso: no mostrar el overlay
   const el = document.getElementById('g-load');
   if (el) el.style.display = v ? 'flex' : 'none';
 }
