@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Casino · Sistema de Gestión</title>
+  <title>AKUMA 777</title>
+  <link rel="icon" href="https://res.cloudinary.com/dyz0wz4kx/image/upload/v1782360047/b3c6592e-1a7c-4157-b38a-7f0a383441b1.png" type="image/png">
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Exo+2:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Exo+2:wght@400;500;600;700&family=Orbitron:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -52,8 +54,9 @@
       <span class="login-suit">♦</span>
       <span class="login-suit">♣</span>
     </div>
-    <div class="login-logo">CASINO</div>
-    <div class="login-sub">SISTEMA DE GESTIÓN</div>
+    <div class="login-logo">AKUMA
+    </div>
+    <div class="login-sub">SISTEMA DE GESTIÓN DE 777</div>
     <div class="login-divider">
       <div class="login-divider-line"></div>
       <div class="login-divider-icon">ACCESO</div>
@@ -516,7 +519,7 @@
         </div>
         <div class="form-col">
           <label>ESTADO</label>
-          <select class="inp-sel" id="ctrl-estado" onchange="loadControl()">
+          <select class="inp-sel" id="ctrl-estado" onchange="ctrlResetPage()">
             <option value="pending">Pendientes</option>
             <option value="done">Controladas</option>
             <option value="all">Todas</option>
@@ -524,15 +527,15 @@
         </div>
         <div class="form-col">
           <label>CAJERO</label>
-          <select class="inp-sel" id="ctrl-cajero" onchange="loadControl()"><option value="">Todos</option></select>
+          <select class="inp-sel" id="ctrl-cajero" onchange="ctrlResetPage()"><option value="">Todos</option></select>
         </div>
         <div class="form-col ctrl-date-col" style="display:none">
           <label>DESDE</label>
-          <input type="date" class="inp" id="ctrl-desde" onchange="loadControl()">
+          <input type="date" class="inp" id="ctrl-desde" onchange="ctrlResetPage()">
         </div>
         <div class="form-col ctrl-date-col" style="display:none">
           <label>HASTA</label>
-          <input type="date" class="inp" id="ctrl-hasta" onchange="loadControl()">
+          <input type="date" class="inp" id="ctrl-hasta" onchange="ctrlResetPage()">
         </div>
       </div>
       <div class="control-summary" id="control-summary"></div>
@@ -545,6 +548,7 @@
           <tbody id="control-tbody"></tbody>
         </table>
       </div>
+      <div class="control-pager" id="control-pager"></div>
     </div>
   </div>
 
@@ -821,6 +825,22 @@
               <option value="rose">✿ Rosa</option>
               <option value="arctic">❄ Ártico</option>
             </select>
+          </label>
+          <label class="field" style="display:block;margin-bottom:12px">
+            <span style="font-size:.7rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:5px">PLANTILLA VISUAL</span>
+            <select class="inp-sel" id="ap-template" style="width:100%" onchange="apTemplateChange(this.value)">
+              <option value="glass">💎 Cyber Glass (default)</option>
+              <option value="neon">⚡ Neon Arcade</option>
+              <option value="flat">▫️ Minimal Flat</option>
+              <option value="neu">🌑 Neumorfismo</option>
+              <option value="vegas">🎰 Casino Clásico</option>
+              <option value="dense">🗜️ Compacto Denso</option>
+              <option value="terminal">🖥️ Terminal</option>
+              <option value="pastel">🍦 Pastel Suave</option>
+              <option value="brutal">⬛ Brutalist</option>
+              <option value="corppro">🏢 Corporativo Pro</option>
+            </select>
+            <div style="font-size:.68rem;color:var(--muted);margin-top:5px">Cambia forma, tipografía y efectos — combina con cualquier tema de color.</div>
           </label>
           <label class="field" style="display:block;margin-bottom:8px">
             <span style="font-size:.7rem;color:var(--muted);letter-spacing:1px;display:block;margin-bottom:5px">TIPO DE FONDO</span>

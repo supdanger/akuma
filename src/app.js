@@ -6,7 +6,7 @@
 import { db } from './services/supabase.js';
 import { state } from './utils/state.js';
 import {
-  THEMES, ROLE_HIERARCHY, ROLE_LABELS, SHIFT_NAMES,
+  THEMES, TEMPLATES, ROLE_HIERARCHY, ROLE_LABELS, SHIFT_NAMES,
   ALL_PAGES, DEFAULT_PERMS, PAL,
 } from './utils/constants.js';
 import { fmtNum, esc, cap, durStr } from './utils/formatters.js';
@@ -127,6 +127,8 @@ function applyAppearance(ap) {
     const t = THEMES[ap.theme] || THEMES[''];
     applyTheme(ap.theme, t.name, t.color, null);
   }
+  // Plantilla visual (forma/tipografía)
+  if (ap.template !== undefined) applyTemplate(ap.template);
   // Fondo (imagen o video)
   applyBg(ap);
   // Overlay
@@ -149,6 +151,9 @@ async function loadAppearance() {
       const t = THEMES[ap.theme] || THEMES[''];
       applyTheme(ap.theme, t.name, t.color, null);
     }
+
+    // Plantilla visual (forma/tipografía)
+    if (ap.template !== undefined) applyTemplate(ap.template);
 
     // Imagen o video de fondo
     applyBg(ap);
@@ -463,6 +468,7 @@ function apBgUpload(input) {
 
 async function saveAppearance() {
   const theme   = document.getElementById('ap-theme')?.value ?? '';
+  const template = document.getElementById('ap-template')?.value || 'glass';
   const bg      = document.getElementById('ap-bg-url')?.value.trim() ?? '';
   const bgType  = document.getElementById('ap-bg-type')?.value || (bg ? 'image' : 'none');
   const overlayEl = document.getElementById('ap-overlay');
@@ -490,7 +496,7 @@ async function saveAppearance() {
     }))
     .filter(b => b.url || b.text || (b.buttons && b.buttons.length));
 
-  const ap = { theme, bg, bgType, overlay, banners, bannerRotate: rotateSec * 1000 };
+  const ap = { theme, template, bg, bgType, overlay, banners, bannerRotate: rotateSec * 1000 };
 
   showLoad(true);
   try {
@@ -519,6 +525,10 @@ async function populateAppearanceForm() {
     populateThemeSelect();
     const th = document.getElementById('ap-theme');
     if (th) th.value = ap.theme ?? '';
+
+    populateTemplateSelect();
+    const tpl = document.getElementById('ap-template');
+    if (tpl) tpl.value = ap.template ?? 'glass';
 
     const bg = document.getElementById('ap-bg-url');
     if (bg) bg.value = ap.bg || '';
@@ -902,6 +912,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   const t = THEMES[savedTheme] || THEMES[''];
   applyTheme(savedTheme, t.name, t.color, null);
   renderThemeOptions();
+  // Plantilla visual guardada
+  applyTemplate(localStorage.getItem('casino_template') || 'glass');
   try {
     await loadStarImages();
     await loadAppearance();
@@ -946,7 +958,7 @@ async function autoRefreshPage() {
 async function refreshPage(p) {
   if (p === 'inicio')    { await populateInicioTurnos(); applyInicioFilters(); loadReporte(); }
   if (p === 'cargas')    { await loadCounters(); await loadCurrentBankAccount(); }
-  if (p === 'historial') { await loadHistorial(false); }
+  if (p === 'historial' && !state.saEditingChargeId_) { await loadHistorial(false); }
   if (p === 'control')   { await loadControl(); }
   if (p === 'retiros')   { await loadRetiros(); }
   if (p === 'jugadores') {
@@ -1339,7 +1351,7 @@ async function initPage(p) {
     if (csSel) { csSel.value = String(state.activeShift_); const isSuper = ['superadmin','gerente','admin','supervisor'].includes(state.currentUser?.role); csSel.style.display = isSuper ? '' : 'none'; }
     await loadCurrentBankAccount();
   }
-  if (p === 'historial') { populateBonusFilter(); await loadHistorial(); }
+  if (p === 'historial') { state.saEditingChargeId_ = null; populateBonusFilter(); await loadHistorial(); }
   if (p === 'control') {
     const per = document.getElementById('ctrl-periodo');
     document.querySelectorAll('.ctrl-date-col').forEach(el => el.style.display = (per?.value === 'custom') ? '' : 'none');
@@ -1436,6 +1448,19 @@ function apThemeChange(key) {
   applyTheme(key, t.name, t.color, null);
 }
 
+/* Plantilla visual: forma, tipografía y efectos (independiente del color) */
+function applyTemplate(key) {
+  const k = (key && TEMPLATES[key]) ? key : 'glass';
+  document.documentElement.dataset.template = k;
+  localStorage.setItem('casino_template', k);
+  const sel = document.getElementById('ap-template');
+  if (sel) sel.value = k;
+}
+
+function apTemplateChange(key) {
+  applyTemplate(key);
+}
+
 /* Genera las opciones del menú de temas desde THEMES (escalable) */
 function renderThemeOptions() {
   const dd = document.getElementById('theme-dropdown');
@@ -1460,6 +1485,17 @@ function populateThemeSelect() {
     '<option value="' + key + '">' + (t.icon || '●') + ' ' + esc(t.name) + (key === '' ? ' (default)' : '') + '</option>'
   ).join('');
   sel.value = cur;
+}
+
+/* Llena el <select> de plantilla visual del panel de apariencia */
+function populateTemplateSelect() {
+  const sel = document.getElementById('ap-template');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = Object.entries(TEMPLATES).map(([key, t]) =>
+    '<option value="' + key + '">' + (t.icon || '●') + ' ' + esc(t.name) + (key === 'glass' ? ' (default)' : '') + '</option>'
+  ).join('');
+  sel.value = cur || 'glass';
 }
 
 function toggleThemeDropdown(e) {
@@ -2248,11 +2284,18 @@ function showBonusEdit(id, currentBonus) {
   const grid = document.createElement('div');
   grid.className = 'bonus-sel-grid';
 
+  // Lee fecha/hora del formulario EN EL MOMENTO DEL CLICK (no al confirmar),
+  // para que un auto-refresco de por medio no la borre antes de que llegues a confirmar.
+  const readDateTime = () => ({
+    dateVal: document.getElementById('sa-date-' + id)?.value || null,
+    timeVal: document.getElementById('sa-time-' + id)?.value || '00:00:00',
+  });
+
   // No bonus button
   const noneBtn = document.createElement('button');
   noneBtn.className = 'bonus-sel-btn nobonus' + (currentBonus === 0 ? ' current' : '');
   noneBtn.textContent = 'SIN BONO';
-  noneBtn.onclick = function() { saveBonusEdit(id, 0, '', null); };
+  noneBtn.onclick = function() { const dt = readDateTime(); saveBonusEdit(id, 0, '', null, dt.dateVal, dt.timeVal); };
   grid.appendChild(noneBtn);
 
   // Bonus buttons from state.activeBonuses
@@ -2265,7 +2308,7 @@ function showBonusEdit(id, currentBonus) {
       ? (b.percentage || b.amount) + '% = $' + fmtNum(calcAmt)
       : '$' + fmtNum(b.amount);
     btn.title = b.name;
-    btn.onclick = function() { saveBonusEdit(id, calcAmt, b.name, b.id); };
+    btn.onclick = function() { const dt = readDateTime(); saveBonusEdit(id, calcAmt, b.name, b.id, dt.dateVal, dt.timeVal); };
     grid.appendChild(btn);
   });
   wrap.appendChild(grid);
@@ -2313,19 +2356,33 @@ function showBonusEdit(id, currentBonus) {
   cancel.className = 'bonus-sel-cancel';
   cancel.textContent = '✕ Cancelar';
   cancel.style.marginTop = '8px';
-  cancel.onclick = function() { loadHistorial(false); };
+  cancel.onclick = function() { state.saEditingChargeId_ = null; loadHistorial(false); };
   wrap.appendChild(cancel);
 
   cell.innerHTML = '';
   cell.appendChild(wrap);
+  // Pausar el auto-refresco del historial mientras esta edición está abierta,
+  // para que no te borre la fecha/hora que estás escribiendo.
+  state.saEditingChargeId_ = id;
 }
 
-async function saveBonusEdit(id, newBonus, bonusName, bonusTypeId) {
+async function saveBonusEdit(id, newBonus, bonusName, bonusTypeId, dateVal, timeVal) {
   const row = state.hAllData.find(r => r.id === id);
   if (!row) return;
 
-  // Don't save if same value
-  if (Math.abs(row.bonus_amount - newBonus) < 0.01) {
+  const bonusChanged = Math.abs((row.bonus_amount || 0) - newBonus) >= 0.01;
+
+  // ¿Cambió también la fecha/hora? Comparamos contra el valor actual de la carga.
+  let newDt = null;
+  if (dateVal) {
+    newDt = new Date(dateVal + 'T' + (timeVal || '00:00:00'));
+    if (isNaN(newDt.getTime())) newDt = null;
+  }
+  const dateChanged = newDt && Math.abs(newDt.getTime() - new Date(row.created_at).getTime()) >= 1000; // diferencia real, no solo de formato
+
+  if (!bonusChanged && !dateChanged) {
+    // Nada para guardar: ni el bono ni la fecha/hora cambiaron.
+    state.saEditingChargeId_ = null;
     renderHistorialPage();
     return;
   }
@@ -2333,46 +2390,51 @@ async function saveBonusEdit(id, newBonus, bonusName, bonusTypeId) {
   const oldBonus = row.bonus_amount || 0;
   const fromLabel = oldBonus > 0 ? '$' + fmtNum(oldBonus) : 'Sin bono';
   const toLabel   = newBonus > 0 ? '$' + fmtNum(newBonus)  : 'Sin bono';
+  const oldDtStr  = new Date(row.created_at).toLocaleString('es-AR');
+  const newDtStr  = dateChanged ? newDt.toLocaleString('es-AR') : null;
+
+  let msg = 'Confirmar cambios para <strong>' + esc(row.player_name) + '</strong><br>';
+  if (bonusChanged) msg += 'Bono: ' + fromLabel + ' → ' + toLabel + '<br>';
+  if (dateChanged)  msg += 'Fecha/hora: ' + oldDtStr + ' → ' + newDtStr + '<br>';
+  if (bonusChanged) msg += 'El contador se actualizará automáticamente.';
 
   showConfirm(
-    'Cambiar bono de <strong>' + esc(row.player_name) + '</strong><br>' +
-    fromLabel + ' → ' + toLabel + '<br>' +
-    'El contador se actualizará automáticamente.',
+    msg,
     async function() {
       showLoad(true);
       const updateData = {
-        bonus_amount:    newBonus,
-        bonus_name:      bonusName || '',
-        bonus_type_id:   bonusTypeId || null,
-        total:           row.amount + newBonus,
-        sa_bonus_override: true,
-        sa_edited_by:    state.currentUser.name,
-        sa_edited_at:    new Date().toISOString(),
+        sa_edited_by: state.currentUser.name,
+        sa_edited_at: new Date().toISOString(),
       };
-      // Save originals only on first edit
-      if (!row.sa_bonus_override) {
-        updateData.original_bonus_amount = oldBonus;
-        updateData.original_total        = row.total;
-      }
-      // Save date/time if changed
-      const dateVal = document.getElementById('sa-date-' + id)?.value;
-      const timeVal = document.getElementById('sa-time-' + id)?.value || '00:00:00';
-      if (dateVal) {
-        const newDt = new Date(dateVal + 'T' + timeVal);
-        if (!isNaN(newDt.getTime())) {
-          updateData.created_at = newDt.toISOString();
+      if (bonusChanged) {
+        updateData.bonus_amount    = newBonus;
+        updateData.bonus_name      = bonusName || '';
+        updateData.bonus_type_id   = bonusTypeId || null;
+        updateData.total           = row.amount + newBonus;
+        updateData.sa_bonus_override = true;
+        // Save originals only on first edit
+        if (!row.sa_bonus_override) {
+          updateData.original_bonus_amount = oldBonus;
+          updateData.original_total        = row.total;
         }
       }
+      if (dateChanged) {
+        updateData.created_at = newDt.toISOString();
+      }
       const { error: upErr } = await db.from('charges').update(updateData).eq('id', id);
+      state.saEditingChargeId_ = null;
       if (upErr) {
         showToast('No se pudo guardar: ' + (upErr.message || upErr), 't-err');
         console.error(upErr);
         showLoad(false);
         return;
       }
-      await loadCounters();
+      if (bonusChanged) await loadCounters();
       await loadHistorial(false);
-      showToast('✔ Bono cambiado: ' + fromLabel + ' → ' + toLabel, 't-ok');
+      const parts = [];
+      if (bonusChanged) parts.push('bono ' + fromLabel + ' → ' + toLabel);
+      if (dateChanged)  parts.push('fecha/hora actualizada');
+      showToast('✔ ' + parts.join(' · '), 't-ok');
       showLoad(false);
     }
   );
@@ -2421,58 +2483,98 @@ async function populateControlCajeros() {
   } catch (_) {}
 }
 
+function ctrlResetPage() {
+  state.ctrlPage_ = 1;
+  loadControl(true);
+}
+
 function ctrlPeriodChange() {
   const per = document.getElementById('ctrl-periodo')?.value;
   document.querySelectorAll('.ctrl-date-col').forEach(el => el.style.display = per === 'custom' ? '' : 'none');
+  state.ctrlPage_ = 1;
   loadControl();
 }
 
-async function loadControl() {
+// Cambiar de página sin volver a la 1
+function ctrlGoPage(p) {
+  const total = state.ctrlTotal_ || 0;
+  const size = state.ctrlPageSize_ || 25;
+  const maxPage = Math.max(1, Math.ceil(total / size));
+  const np = Math.min(Math.max(1, p), maxPage);
+  if (np === state.ctrlPage_) return;
+  state.ctrlPage_ = np;
+  loadControl(true);
+}
+
+function ctrlPageSizeChange(v) {
+  state.ctrlPageSize_ = parseInt(v, 10) || 25;
+  state.ctrlPage_ = 1;
+  loadControl(true);
+}
+
+// keepPage=true → no resetea a la página 1 (para navegar / refrescar la misma)
+async function loadControl(keepPage) {
   if (!canControl()) return;
   const tbody = document.getElementById('control-tbody');
   if (!tbody) return;
+  if (!keepPage) state.ctrlPage_ = state.ctrlPage_ || 1;
 
   const periodo = document.getElementById('ctrl-periodo')?.value || 'turno';
   const estado = document.getElementById('ctrl-estado')?.value || 'pending';
   const cajero = document.getElementById('ctrl-cajero')?.value || '';
   const desde  = document.getElementById('ctrl-desde')?.value;
   const hasta  = document.getElementById('ctrl-hasta')?.value;
+  const pageSize = state.ctrlPageSize_ || 25;
+  const page = state.ctrlPage_ || 1;
 
   showLoad(true);
   try {
     await populateControlCajeros();
 
-    // Determinar el rango según el período
+    // Determinar el rango de fechas según el período
     let fromISO = null, toISO = null;
     if (periodo === 'turno') {
-      // Desde el último reinicio de contadores de bonos (= inicio del turno)
       const { data: cr } = await db.from('bonus_counters').select('reset_at').eq('id', 1).maybeSingle();
       fromISO = cr?.reset_at || new Date(Date.now() - 86400000).toISOString();
     } else if (periodo === 'hoy') {
       const t = new Date(); t.setHours(0, 0, 0, 0);
       fromISO = t.toISOString();
-    } else { // custom
+    } else {
       if (desde) fromISO = desde + 'T00:00:00';
       if (hasta) toISO = hasta + 'T23:59:59';
     }
 
-    let qb = db.from('charges')
-      .select('id,player_id,player_name,amount,bonus_amount,cajero,created_at,verified,verified_by,verified_at,status')
-      .eq('status', 'ok')
-      .order('created_at', { ascending: false })
-      .limit(500);
+    // Constructor de filtros reutilizable (para la página y para el resumen total)
+    const applyFilters = (qb) => {
+      qb = qb.eq('status', 'ok');
+      if (estado === 'pending') qb = qb.or('verified.is.null,verified.eq.false');
+      else if (estado === 'done') qb = qb.eq('verified', true);
+      if (cajero) qb = qb.eq('cajero', cajero);
+      if (fromISO) qb = qb.gte('created_at', fromISO);
+      if (toISO)   qb = qb.lte('created_at', toISO);
+      return qb;
+    };
 
-    if (estado === 'pending') qb = qb.or('verified.is.null,verified.eq.false');
-    else if (estado === 'done') qb = qb.eq('verified', true);
-    if (cajero) qb = qb.eq('cajero', cajero);
-    if (fromISO) qb = qb.gte('created_at', fromISO);
-    if (toISO)   qb = qb.lte('created_at', toISO);
+    // 1) Pedir SOLO la página actual (con total exacto vía count)
+    const from = (page - 1) * pageSize;
+    const to   = from + pageSize - 1;
+    let qb = applyFilters(
+      db.from('charges')
+        .select('id,player_id,player_name,amount,bonus_amount,cajero,created_at,verified,verified_by,verified_at,status', { count: 'exact' })
+        .order('created_at', { ascending: false })
+    ).range(from, to);
 
-    const { data, error } = await qb;
+    const { data, count, error } = await qb;
     if (error) throw error;
     const rows = data || [];
+    const total = count || 0;
+    state.ctrlTotal_ = total;
 
-    // Cruzar casino_id de los jugadores
+    // Si la página quedó fuera de rango (p.ej. se confirmó la última), retroceder
+    const maxPage = Math.max(1, Math.ceil(total / pageSize));
+    if (page > maxPage) { state.ctrlPage_ = maxPage; showLoad(false); return loadControl(true); }
+
+    // Cruzar casino_id de los jugadores de esta página
     const pids = [...new Set(rows.map(r => r.player_id).filter(Boolean))];
     const cidMap = {};
     if (pids.length) {
@@ -2480,19 +2582,23 @@ async function loadControl() {
       (pl || []).forEach(p => { cidMap[p.id] = p.casino_id || ''; });
     }
 
-    // Resumen: cantidad + suma de montos
-    const totalMonto = rows.reduce((a, r) => a + Number(r.amount || 0), 0);
-    const totalBonos = rows.reduce((a, r) => a + Number(r.bonus_amount || 0), 0);
+    // 2) Resumen sobre TODO el filtro (no solo la página visible)
+    let sumMonto = 0, sumBonos = 0;
+    try {
+      const { data: allAmts } = await applyFilters(db.from('charges').select('amount,bonus_amount')).limit(20000);
+      (allAmts || []).forEach(r => { sumMonto += Number(r.amount || 0); sumBonos += Number(r.bonus_amount || 0); });
+    } catch (_) {}
     const summary = document.getElementById('control-summary');
     if (summary) {
       summary.innerHTML =
-        `<div class="ctrl-sum-item"><span>Cargas</span><strong>${rows.length}</strong></div>` +
-        `<div class="ctrl-sum-item"><span>Monto total</span><strong style="color:var(--green)">$${fmtNum(totalMonto)}</strong></div>` +
-        `<div class="ctrl-sum-item"><span>Bonos</span><strong style="color:var(--accent)">$${fmtNum(totalBonos)}</strong></div>`;
+        `<div class="ctrl-sum-item"><span>Cargas (filtro)</span><strong>${total}</strong></div>` +
+        `<div class="ctrl-sum-item"><span>Monto total</span><strong style="color:var(--green)">$${fmtNum(sumMonto)}</strong></div>` +
+        `<div class="ctrl-sum-item"><span>Bonos</span><strong style="color:var(--accent)">$${fmtNum(sumBonos)}</strong></div>`;
     }
 
     if (!rows.length) {
       tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="es-icon">✅</div><div class="es-title">Nada para controlar</div><div class="es-sub">No hay cargas con este filtro.</div></div></td></tr>`;
+      renderControlPager(total, page, pageSize);
       await refreshControlBadge();
       return;
     }
@@ -2503,12 +2609,15 @@ async function loadControl() {
       const hora  = dt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
       const cid = cidMap[r.player_id];
       const idCell = cid
-        ? `<span style="font-family:'Rajdhani',sans-serif;letter-spacing:.5px;color:var(--accent);font-weight:600">${esc(cid)}</span>`
+        ? `<span style="font-family:var(--font-heading);letter-spacing:.5px;color:var(--accent);font-weight:600">${esc(cid)}</span>`
         : `<button class="btn-tiny" style="color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,transparent)" onclick="controlAssignId('${r.player_id || ''}','${esc(r.player_name)}')">⚠ Sin ID</button>`;
       const done = r.verified === true;
       const ctrlCell = done
-        ? `<label class="ctrl-check"><input type="checkbox" checked onchange="verifyCharge('${r.id}',this.checked)"><span class="ctrl-done" title="${esc(r.verified_by || '')} · ${r.verified_at ? new Date(r.verified_at).toLocaleString('es-AR') : ''}">✓ ${esc(r.verified_by || 'OK')}</span></label>`
-        : `<label class="ctrl-check"><input type="checkbox" onchange="verifyCharge('${r.id}',this.checked)"><span style="color:var(--muted);font-size:.74rem">marcar</span></label>`;
+        ? `<div class="ctrl-actions">
+             <span class="ctrl-done" title="${esc(r.verified_by || '')} · ${r.verified_at ? new Date(r.verified_at).toLocaleString('es-AR') : ''}">✓ ${esc(r.verified_by || 'OK')}</span>
+             <button class="btn-unconfirm" onclick="unconfirmCharge('${r.id}','${esc(r.player_name)}')" title="Volver a pendiente">↩ Desmarcar</button>
+           </div>`
+        : `<button class="btn-confirm" onclick="confirmCharge('${r.id}')">✓ Confirmar</button>`;
       return `<tr class="${done ? 'ctrl-row-done' : ''}" id="ctrlrow-${r.id}">
         <td>${idCell}</td>
         <td style="font-weight:600">${esc(r.player_name)}</td>
@@ -2521,13 +2630,34 @@ async function loadControl() {
       </tr>`;
     }).join('');
 
+    renderControlPager(total, page, pageSize);
     await refreshControlBadge();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--red)">Error: ${esc(e?.message || String(e))}<br><small style="color:var(--muted)">¿Corriste CONTROL_CARGAS.sql en Supabase?</small></td></tr>`;
   } finally { showLoad(false); }
 }
 
-async function verifyCharge(id, checked) {
+// Paginador del control
+function renderControlPager(total, page, pageSize) {
+  const el = document.getElementById('control-pager');
+  if (!el) return;
+  const maxPage = Math.max(1, Math.ceil(total / pageSize));
+  const fromN = total ? (page - 1) * pageSize + 1 : 0;
+  const toN   = Math.min(page * pageSize, total);
+  el.innerHTML =
+    `<div class="ctrl-pager-info">Mostrando ${fromN}–${toN} de ${total}</div>` +
+    `<div class="ctrl-pager-ctrls">` +
+      `<button class="btn-tiny" ${page <= 1 ? 'disabled' : ''} onclick="ctrlGoPage(${page - 1})">‹ Anterior</button>` +
+      `<span class="ctrl-pager-page">Página ${page} de ${maxPage}</span>` +
+      `<button class="btn-tiny" ${page >= maxPage ? 'disabled' : ''} onclick="ctrlGoPage(${page + 1})">Siguiente ›</button>` +
+      `<select class="inp-sel ctrl-pager-size" onchange="ctrlPageSizeChange(this.value)">` +
+        [25, 50, 100].map(n => `<option value="${n}" ${n === pageSize ? 'selected' : ''}>${n}/pág</option>`).join('') +
+      `</select>` +
+    `</div>`;
+}
+
+// Aplica el cambio de estado y actualiza la fila/paginado
+async function applyVerify(id, checked) {
   if (!canControl()) { showToast('Sin permisos.', 't-err'); return; }
   const upd = checked
     ? { verified: true, verified_by: state.currentUser.name, verified_at: new Date().toISOString() }
@@ -2537,15 +2667,34 @@ async function verifyCharge(id, checked) {
 
   const estado = document.getElementById('ctrl-estado')?.value || 'pending';
   const row = document.getElementById('ctrlrow-' + id);
-  // Si estamos viendo "pendientes" y se marcó, la fila sale de la lista
-  if (row && ((estado === 'pending' && checked) || (estado === 'done' && !checked))) {
-    row.style.transition = 'opacity .3s';
+  // Si la fila ya no corresponde al filtro actual, sale de la vista
+  const leaves = (estado === 'pending' && checked) || (estado === 'done' && !checked);
+  if (row && leaves) {
+    row.style.transition = 'opacity .25s';
     row.style.opacity = '0';
-    setTimeout(() => { row.remove(); if (!document.querySelector('#control-tbody .cajero-name-cell, #control-tbody tr[id]')) loadControl(); }, 300);
-  } else if (row) {
-    row.classList.toggle('ctrl-row-done', checked);
+    setTimeout(() => {
+      row.remove();
+      // Si la página quedó vacía, recargar (trae la siguiente o retrocede)
+      if (!document.querySelector('#control-tbody tr[id]')) loadControl(true);
+      else loadControl(true); // refresca total/paginado/resumen
+    }, 250);
+  } else {
+    loadControl(true);
   }
+  showToast(checked ? '✓ Carga confirmada.' : '↩ Carga vuelta a pendiente.', checked ? 't-ok' : 't-info');
   await refreshControlBadge();
+}
+
+// Confirmar: directo, sin "¿seguro?"
+function confirmCharge(id) {
+  applyVerify(id, true);
+}
+
+// Desmarcar: pide confirmación para no revertir sin querer
+function unconfirmCharge(id, name) {
+  showConfirm('¿Volver a <strong>pendiente</strong> la carga de "' + esc(name) + '"?', function() {
+    applyVerify(id, false);
+  });
 }
 
 async function controlAssignId(playerId, playerName) {
@@ -4413,8 +4562,9 @@ Object.assign(window, {
   toggleThemeDropdown, updateTotal, uploadStaffPhoto, uploadStarImg,
   toggleResetHistory, loadResetHistory,
   showUserPerms, saveUserPerms, resetUserPerms, kickUser,
-  notifGo, toggleNotifSound, markAllNotifRead, apThemeChange,
+  notifGo, toggleNotifSound, markAllNotifRead, apThemeChange, apTemplateChange,
   toggleAssignIds, saveCasinoId,
-  loadControl, verifyCharge, controlAssignId, controlSaveId, ctrlPeriodChange,
+  loadControl, controlAssignId, controlSaveId, ctrlPeriodChange,
+  ctrlResetPage, ctrlGoPage, ctrlPageSizeChange, confirmCharge, unconfirmCharge,
   copyText, closeModal,
 });

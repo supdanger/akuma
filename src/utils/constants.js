@@ -31,6 +31,33 @@ export const THEMES = {
   aqua:        { name: 'Aqua', color: '#22d3ee', icon: '💧' },
   fire:        { name: 'Fuego', color: '#ff5722', icon: '🔥' },
   galaxy:      { name: 'Galaxia', color: '#9d4edd', icon: '🌌' },
+  corporate:   { name: 'Corporativo', color: '#5b84b1', icon: '💼' },
+  steel:       { name: 'Acero', color: '#8895a7', icon: '⚙️' },
+  obsidian:    { name: 'Obsidiana', color: '#7a7f9c', icon: '⬛' },
+  bronze:      { name: 'Bronce', color: '#cd7f4d', icon: '🥉' },
+  platinum:    { name: 'Platino', color: '#c4ccd6', icon: '⚪' },
+  forest:      { name: 'Bosque', color: '#3a9e6e', icon: '🌲' },
+  wine:        { name: 'Vino', color: '#a03050', icon: '🍷' },
+  copper:      { name: 'Cobre', color: '#d97f5a', icon: '🟤' },
+  ice:         { name: 'Hielo', color: '#7ec8e3', icon: '🧊' },
+  gold2:       { name: 'Oro Viejo', color: '#c9a44c', icon: '🏆' },
+  midnight:    { name: 'Medianoche', color: '#4a6fa5', icon: '🌃' },
+  sage:        { name: 'Salvia', color: '#7ba88a', icon: '🌿' },
+  slate:       { name: 'Pizarra', color: '#6b7d8c', icon: '🪨' },
+};
+
+// Plantillas visuales: cambian forma/tipografía/efectos (independiente del color)
+export const TEMPLATES = {
+  glass: { name: 'Cyber Glass', icon: '💎' },
+  neon:  { name: 'Neon Arcade', icon: '⚡' },
+  flat:  { name: 'Minimal Flat', icon: '▫️' },
+  neu:   { name: 'Neumorfismo', icon: '🌑' },
+  vegas: { name: 'Casino Clásico', icon: '🎰' },
+  dense: { name: 'Compacto Denso', icon: '🗜️' },
+  terminal: { name: 'Terminal', icon: '🖥️' },
+  pastel:   { name: 'Pastel Suave', icon: '🍦' },
+  brutal:   { name: 'Brutalist', icon: '⬛' },
+  corppro:  { name: 'Corporativo Pro', icon: '🏢' },
 };
 
 export const ROLE_HIERARCHY = {
